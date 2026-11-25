@@ -1,10 +1,11 @@
-// Point d'entrée : connexion, navigation par adresse, tiroir de fiche.
+// Point d'entrée : connexion, navigation par adresse, fiche plein écran, recherche globale.
 // Adresses : #/contacts, #/contacts/<id>, #/todo, #/todo/<id>, #/todo/new, #/todo/new/<id du contact>,
 // #/todo/new/projet/<id du projet>, #/projets, #/projets/<id>.
 import { onAuth, sendMagicLink, signOut, isAllowed, currentSession, consumeUrlTokens } from "./session.js";
 import { contactsView, bindContactEvents, bindDrawerEvents } from "./contacts.js";
 import { todoView, bindTodoEvents, bindTodoDrawerEvents } from "./todo.js";
 import { projetsView, bindProjetsEvents, bindProjetsDrawerEvents } from "./projets.js";
+import { mountSearch } from "./search.js";
 import { $, esc, ic, toast } from "./ui.js";
 
 // Vues disponibles, dans l'ordre des onglets. L'agent de fiche et les mails viendront s'ajouter ici.
@@ -20,13 +21,15 @@ function shell() {
   const soon = (v) => `<li><button disabled title="Prochain jalon">${ic(v.icon)}<span class="nl">${esc(v.label)}</span><span class="soon">bientôt</span></button></li>`;
   $("#app").innerHTML = `
     <aside id="side">
-      <div class="brand"><div class="wm">RoseauSI</div><div class="brand-sub">Cockpit de pilotage</div><span class="poc-tag">Jalon 4</span></div>
+      <div class="brand"><div class="wm">RoseauSI</div><div class="brand-sub">Cockpit de pilotage</div><span class="poc-tag">Lot 1</span></div>
       <ul class="nav">${VIEWS.map((v) => nav(v, v === current)).join("")}${SOON.map(soon).join("")}</ul>
       <div class="side-foot"><span>Connecté : <b>${esc(session?.user?.email)}</b></span>
         <div class="side-row"><button class="side-btn" data-act="reload">${ic("refresh", "ic-sm")}Actualiser</button><button class="side-btn" data-act="logout">${ic("logout", "ic-sm")}Déconnexion</button></div></div>
     </aside>
     <div class="main-col">
       <div class="top"><span class="mbrand">RoseauSI</span><h1>${esc(current.label)}</h1>
+        <div class="search" id="search"></div>
+        <button class="iconbtn mob-only" data-act="opensearch" aria-label="Rechercher">${ic("search")}</button>
         <button class="iconbtn mob-only" data-act="reload" aria-label="Actualiser">${ic("refresh")}</button>
         <button class="iconbtn mob-only" data-act="logout" aria-label="Déconnexion">${ic("logout")}</button></div>
       <main id="view"></main>
@@ -35,7 +38,7 @@ function shell() {
 }
 
 function loginScreen(msg = "", sent = false) {
-  $("#drawer").classList.remove("on"); $("#scrim").classList.remove("on");
+  $("#drawer").classList.remove("on"); document.body.classList.remove("dr-open");
   $("#app").innerHTML = `
     <div class="login"><div class="login-card">
       <div class="wm">RoseauSI</div><p class="muted" style="margin:6px 0 18px">Cockpit de pilotage</p>
@@ -55,24 +58,51 @@ function loginScreen(msg = "", sent = false) {
   });
 }
 
+// Pile des fiches ouvertes à la suite (bouton Retour de l'en-tête), remise à zéro à la fermeture.
+let ficheStack = [];
+
 function route() {
   if (!session) return;
   const [, view = "contacts", id, extra, extra2] = (location.hash || "#/contacts").split("/");
   const v = VIEWS.find((x) => x.id === view) ?? VIEWS[0];
-  if (v !== current) { current?.close?.(); current = v; shell(); v.mount($("#view"), $("#dr-body")); }
-  $("#drawer").classList.toggle("full", !!v.wide && !!id);
-  if (id === "new" && v.openNew) openDrawer(() => v.openNew(extra, extra2));
-  else if (id) openDrawer(() => v.open(id));
-  else closeDrawer(false);
+  if (v !== current) { current?.close?.(); current = v; shell(); v.mount($("#view"), $("#dr-body")); mountSearch($("#search")); }
+  if (id) {
+    const h = location.hash;
+    if (ficheStack.length > 1 && ficheStack[ficheStack.length - 2] === h) ficheStack.pop();
+    else if (ficheStack[ficheStack.length - 1] !== h) ficheStack.push(h);
+    $("#dr-back").hidden = ficheStack.length < 2;
+    if (id === "new" && v.openNew) openDrawer(() => v.openNew(extra, extra2));
+    else openDrawer(() => v.open(id));
+  } else closeDrawer(false);
 }
 
+/** Pose la fiche sur la zone de contenu : le menu de gauche reste visible sur ordinateur. */
+function drFit() {
+  const d = $("#drawer");
+  let l = 0, r = 0, t = 0, b = 0;
+  if (window.matchMedia("(max-width: 900px)").matches) b = $("#tabbar")?.offsetHeight || 0;
+  else {
+    const m = document.querySelector(".main-col");
+    if (m) { const rc = m.getBoundingClientRect(); l = Math.round(rc.left); r = Math.max(0, Math.round(document.documentElement.clientWidth - rc.right)); }
+    t = 16; b = 16;
+  }
+  for (const [k, v] of Object.entries({ l, r, t, b })) d.style.setProperty(`--dr-${k}`, v + "px");
+}
+window.addEventListener("resize", drFit);
+
 function openDrawer(load) {
-  $("#scrim").classList.add("on"); $("#drawer").classList.add("on");
-  $("#dr-body").scrollTop = 0;
+  const wasOpen = $("#drawer").classList.contains("on");
+  drFit();
+  document.body.classList.add("dr-open");
+  $("#drawer").classList.add("on");
+  $("#dr-body").scrollTop = 0; $("#dr-main").scrollTop = 0; $("#dr-side").scrollTop = 0;
   load();
+  if (!wasOpen) setTimeout(() => $("#drawer").focus({ preventScroll: true }), 50);
 }
 function closeDrawer(updateHash = true) {
-  $("#scrim").classList.remove("on"); $("#drawer").classList.remove("on");
+  ficheStack = [];
+  document.body.classList.remove("dr-open");
+  $("#drawer").classList.remove("on");
   current?.close?.();
   if (updateHash && location.hash.split("/").length > 2) location.hash = `#/${current.id}`;
 }
@@ -93,8 +123,11 @@ document.addEventListener("click", (e) => {
   if (act === "logout") signOut();
   if (act === "reload") { current?.reload?.(); toast("Relecture depuis Notion…"); }
   if (act === "close") closeDrawer();
+  if (act === "back") history.back();
+  // Fiche étroite (téléphone) : le panneau Mes notes et agent est sous la fiche, un geste y mène.
+  if (act === "drside") $("#dr-side").scrollIntoView({ behavior: "smooth", block: "start" });
+  if (act === "drfiche") { $("#dr-main").scrollTo({ top: 0, behavior: "smooth" }); $("#dr-body").scrollTo({ top: 0, behavior: "smooth" }); }
 });
-$("#scrim").addEventListener("click", () => closeDrawer());
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#drawer").classList.contains("on")) closeDrawer(); });
 window.addEventListener("hashchange", route);
 bindContactEvents($("#app"));

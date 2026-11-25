@@ -2,14 +2,14 @@
 // changement d'état en un clic, création de tâche.
 import { todoApi } from "./api.js";
 import { contactIndex } from "./contacts.js";
-import { $, esc, ic, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, etatLabel, isDone } from "./ui.js";
+import { $, esc, ic, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, etatLabel, isDone, ficheTop, renderSide, sideHTML, ficheTabs, taSpan } from "./ui.js";
 
 const PROSPECTION_PROJECT = "3e6a08ac559780ccb74ce21b2d7e2bbb"; // projet « Prospection » (filtre du POC)
 const CONTACTS_REL = "👱‍♀️ Contacts";
 
 const S = {
   items: null, done: null, schema: null, loading: false, error: null, fetchedAt: null,
-  f: { v: "ouvertes", proj: "", q: "" },
+  f: { v: "ouvertes", proj: "", q: "", mode: "liste" },
   justDone: new Set(),  // tâches terminées pendant la session : restent visibles, barrées, jusqu'à l'actualisation
   open: null,           // fiche ouverte : { id, task, values, saving: Set, error }
 };
@@ -45,6 +45,20 @@ async function load(force = false) {
   } catch (e) { S.error = e.message; }
   finally { S.loading = false; render(); }
 }
+/** Tâches ouvertes (chargées une fois), pour la recherche globale. */
+export async function taskIndex() {
+  if (!S.items && !S.loading) await load();
+  else if (S.loading) await new Promise((r) => { const t = setInterval(() => { if (!S.loading) { clearInterval(t); r(); } }, 100); });
+  return (S.items || []).filter((t) => !isDone(t));
+}
+
+/** Changement d'état depuis une autre vue (fiche projet) : même écriture, même cache que la vue TO DO. */
+export async function setTaskEtat(id, etat) {
+  const r = await update(id, { "État": etat }, etat === "Terminé" ? "Tâche terminée dans Notion." : `État : ${etatLabel(etat)}.`);
+  render();
+  return r.task;
+}
+
 async function loadDone() {
   try { S.done = (await todoApi.list({ scope: "done" })).tasks; } catch (e) { S.done = []; toast(e.message, "err"); }
 }
@@ -75,14 +89,16 @@ function render() {
   if (!host) return;
   const f = S.f;
   const seg = (v, lab) => `<button class="${f.v === v ? "on" : ""}" data-tv="${v}">${lab}</button>`;
+  const mseg = (v, lab) => `<button class="${f.mode === v ? "on" : ""}" data-tmode="${v}" aria-pressed="${f.mode === v}">${lab}</button>`;
   const usedProj = new Set((S.items || []).flatMap((t) => t.projets.map(nid)));
   const projOpts = projets().filter((p) => usedProj.has(nid(p.id)));
   const head = `<div class="bar">
-      <div class="seg" role="group" aria-label="Vue">${seg("ouvertes", "Ouvertes")}${seg("retard", "En retard")}${seg("relire", "À relire")}${seg("prospection", "Prospection")}${seg("faites", "Faites (14 j)")}</div>
+      <div class="seg" role="group" aria-label="Vue">${seg("ouvertes", "Ouvertes")}${seg("retard", "En retard")}${seg("relire", "Prêtes à relire")}${seg("prospection", "Prospection")}${seg("faites", "Faites (14 j)")}</div>
       <label class="sr" for="tf-p">Projet</label>
       <select class="sel" id="tf-p"><option value="">Tous les projets</option>${projOpts.map((p) => `<option value="${p.id}" ${f.proj === p.id ? "selected" : ""}>${esc(p.nom)}</option>`).join("")}</select>
       <label class="sr" for="tf-q">Filtrer</label>
       <input class="inp grow" id="tf-q" type="search" placeholder="Intitulé, projet, type…" value="${esc(f.q)}" autocomplete="off">
+      <div class="seg" role="group" aria-label="Affichage">${mseg("liste", ic("list", "ic-sm") + " Liste")}${mseg("kanban", ic("board", "ic-sm") + " Kanban")}</div>
       <a class="btn sm pri" href="#/todo/new">${ic("plus", "ic-sm")}Tâche</a>
     </div>`;
   let body;
@@ -93,6 +109,7 @@ function render() {
     const late = (S.items || []).filter((t) => !isDone(t) && t.echeance && ddiff(t.echeance) < 0).length;
     body = `<p class="small muted" style="margin:-4px 0 10px">${list.length} tâche${list.length > 1 ? "s" : ""}${f.v === "faites" ? " terminées ou annulées ces 14 derniers jours" : ` sur ${S.items.filter((t) => !isDone(t)).length} ouvertes, dont ${late} en retard`}${S.fetchedAt ? `, lues dans Notion à ${new Date(S.fetchedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : ""}${S.loading ? ", mise à jour…" : ""}.</p>`;
     if (!list.length) body += `<p class="empty">Aucune tâche pour ces filtres.</p>`;
+    else if (f.mode === "kanban") body += kanban(list);
     else if (f.v === "faites") body += `<div class="card"><div class="list">${list.map(row).join("")}</div></div>`;
     else {
       const G = [["En retard", (t) => t.echeance && ddiff(t.echeance) < 0], ["Aujourd'hui", (t) => t.echeance && ddiff(t.echeance) === 0],
@@ -110,9 +127,24 @@ function row(t) {
   return `<div class="arow ${d ? "done" : ""}">
     <button class="chk ${d ? "done" : ""}" data-tdone="${t.id}" aria-label="${d ? "Rouvrir la tâche" : "Marquer comme terminée"}">${d ? ic("check", "ic-sm") : ""}</button>
     <a class="am" href="#/todo/${t.id}"><div class="an">${esc(t.nom)}</div>
-      <div class="ameta">${prioChip(t)}${etatChip(t.etat)}${t.projets.slice(0, 1).map(projChip).join("")}${t.typeAction ? `<span class="ta">${esc(t.typeAction)}</span>` : ""}</div></a>
+      <div class="ameta">${prioChip(t)}${etatChip(t.etat)}${t.projets.slice(0, 1).map(projChip).join("")}${taSpan(t.typeAction)}</div></a>
     ${d ? "" : due(t.echeance)}</div>`;
 }
+
+// Kanban par état (repris du POC) : glisser une carte d'une colonne à l'autre change l'état dans Notion.
+// Sur téléphone les colonnes s'empilent (aucun défilement horizontal) ; l'état se change dans la fiche.
+const OPEN_COLS = ["A venir", "A faire", "En cours", "En attente", "À rédiger", "Prêt à relire"];
+function kanban(list) {
+  const states = S.schema?.editable?.["État"]?.options || [];
+  const cols = S.f.v === "faites" ? ["Terminé", "Annulé"] : OPEN_COLS.filter((e) => states.includes(e));
+  const extra = [...new Set(list.map((t) => t.etat))].filter((e) => e && !cols.includes(e) && !(S.f.v !== "faites" && isDone({ etat: e })));
+  const mobile = window.matchMedia("(max-width: 900px)").matches;
+  return `<p class="small muted" style="margin:-4px 0 10px">${mobile ? "Ouvre une carte pour changer son état." : "Glisse une carte d'une colonne à l'autre pour changer son état dans Notion."}</p>
+    <div class="board">${[...cols, ...extra].map((e) => { const it = list.filter((t) => t.etat === e); return `<section class="col" data-drop="${esc(e)}"><div class="col-h">${esc(etatLabel(e))}<span class="n">${it.length}</span></div>${it.map(kcard).join("") || `<p class="small muted" style="padding:6px">Aucune tâche</p>`}</section>`; }).join("")}</div>`;
+}
+const kcard = (t) => `<a class="pcard acard" href="#/todo/${t.id}" draggable="true" data-drag="${t.id}"><div class="an">${esc(t.nom)}</div>
+  <div class="chips">${prioChip(t)}${t.projets.slice(0, 1).map(projChip).join("")}</div>
+  <div class="acard-f">${due(t.echeance)}${taSpan(t.typeAction)}</div></a>`;
 
 // ---------------- Écritures ----------------
 
@@ -146,7 +178,8 @@ async function toggleDone(id, btn) {
 
 async function openTask(id) {
   const fromList = (S.items || []).concat(S.done || []).find((t) => t.id === id);
-  S.open = { id, task: fromList ? { ...fromList, partial: true } : null, values: null, saving: new Set(), error: null };
+  const sec = S.open?.id === id ? S.open.sec : "synthese";
+  S.open = { id, task: fromList ? { ...fromList, partial: true } : null, values: null, saving: new Set(), error: null, sec };
   setDrawerOwner("todo");
   renderDrawer();
   try {
@@ -166,12 +199,19 @@ let contactsCache = [];
 async function contactsList() { try { contactsCache = await contactIndex(); } catch { /* */ } return contactsCache; }
 contactsList.sync = () => contactsCache;
 
+const SECS = { synthese: "Synthèse", modifier: "Modifier", liens: "Projet et contacts" };
+
 function renderDrawer() {
   const o = S.open;
   if (!o || !drawerHost || !ownsDrawer("todo")) return;
-  $("#dr-kind").textContent = o.isNew ? "Nouvelle tâche" : "Tâche";
-  if (o.isNew) { drawerHost.innerHTML = newForm(o); return; }
   const t = o.task;
+  ficheTop({ kind: o.isNew ? "Nouvelle tâche" : "Tâche", url: t?.url || null, side: !o.isNew });
+  if (o.isNew) { drawerHost.innerHTML = newForm(o); return; }
+  renderSide("todo", sideHTML({
+    notes: [{ label: "Mes notes", text: t?.mesNotes }],
+    notesMissing: !t || t.partial ? "Chargement des notes…" : "",
+    ordre: t && !t.partial ? { etat: t.ordreAgent, mission: t.ordreMission } : null,
+  }));
   if (!t) { drawerHost.innerHTML = o.error ? `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(o.error)}</span></div>` : `<p class="empty">Chargement de la tâche…</p>`; return; }
   const d = isDone(t);
   const states = S.schema?.editable?.["État"]?.options || [];
@@ -179,33 +219,45 @@ function renderDrawer() {
   for (const c of contactsList.sync()) if (t.contacts.some((x) => nid(x) === nid(c.id))) cNames[c.id] = c.nom;
   const nameOfContact = (id) => cNames[id] ?? Object.entries(cNames).find(([k]) => nid(k) === nid(id))?.[1] ?? "Contact";
   const nameOfProj = (id) => t.projetsNoms?.[id] ?? projById(id)?.nom ?? "Projet";
+  const cur = SECS[o.sec] ? o.sec : "synthese";
+  const body = {
+    synthese: () => synthese(o, nameOfProj),
+    modifier: () => `<h3 class="sh" style="margin-top:0">État</h3>
+      <div class="statusbar" role="group" aria-label="Changer l'état">${states.map((s) => `<button class="${s === t.etat ? "on" : ""}" data-tstate="${esc(s)}" ${s === t.etat || o.saving.has("État") ? "disabled" : ""} aria-pressed="${s === t.etat}">${esc(etatLabel(s))}</button>`).join("")}</div>
+      <h3 class="sh">Champs</h3>${o.values ? form(o) : `<p class="empty">Chargement des champs…</p>`}
+      <p class="small muted" style="margin-top:10px">Récap et notes se modifient dans Notion.</p>`,
+    liens: () => o.values ? links(o, nameOfProj, nameOfContact) : `<p class="empty">Chargement…</p>`,
+  }[cur]();
 
   drawerHost.innerHTML = `
-    <div class="dh"><span class="ifmt">${ic("todo")}</span><div style="flex:1;min-width:0"><h1 class="${d ? "strike" : ""}">${esc(t.nom)}</h1>
-      <div class="chips" style="margin-top:8px">${etatChip(t.etat, true)}${t.prio ? chip(t.prio, t.prio === "P1" ? "red" : "") : ""}${t.typeAction ? `<span class="chip">${esc(t.typeAction)}</span>` : ""}${t.creeParAgent ? `<span class="chip dash">Créée par l'agent</span>` : ""}</div></div></div>
-    <div class="dact">
+    <div class="dh"><div class="dact">
       ${t.etat === "Annulé" ? `<button class="btn sm pri" data-tstate="A faire">${ic("refresh", "ic-sm")}Rétablir</button>`
         : d ? `<button class="btn sm" data-tstate="A faire">${ic("refresh", "ic-sm")}Rouvrir</button>`
         : `<button class="btn sm pri" data-tstate="Terminé">${ic("check", "ic-sm")}Marquer fait</button><button class="btn sm" data-tstate="Annulé">${ic("close", "ic-sm")}Annuler la tâche</button>`}
-      ${t.url ? `<a class="btn sm" href="${esc(t.url)}" target="_blank" rel="noopener">${ic("ext", "ic-sm")}Ouvrir dans Notion</a>` : ""}
-      ${t.brouillon ? `<a class="btn sm" href="${esc(t.brouillon)}" target="_blank" rel="noopener">${ic("mail", "ic-sm")}Brouillon Gmail</a>` : ""}
-      ${t.lienSource ? `<a class="btn sm" href="${esc(t.lienSource)}" target="_blank" rel="noopener">${ic("ext", "ic-sm")}Source</a>` : ""}
-    </div>
+      <button class="btn sm" data-tsec="modifier">${ic("note", "ic-sm")}Reformuler</button></div>
+      <span class="ifmt">${ic("todo")}</span><div style="flex:1;min-width:0"><h1 class="${d ? "strike" : ""}">${esc(t.nom)}</h1>
+      <div class="chips" style="margin-top:8px">${etatChip(t.etat, true)}${t.prio ? chip(t.prio, t.prio === "P1" ? "red" : "") : ""}${t.typeAction ? `<span class="chip">${taSpan(t.typeAction)}</span>` : ""}${t.projets.map((p) => `<a class="chip pj" href="#/projets/${p}">${ic("folder", "ic-sm")}${esc(nameOfProj(p))}</a>`).join("")}${t.creeParAgent ? `<span class="chip dash">Créée par l'agent</span>` : ""}</div></div></div>
     ${o.error ? `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(o.error)}</span></div>` : ""}
-    <section class="sec"><h2>État</h2>
-      <div class="statusbar" role="group" aria-label="Changer l'état">${states.map((s) => `<button class="${s === t.etat ? "on" : ""}" data-tstate="${esc(s)}" ${s === t.etat || o.saving.has("État") ? "disabled" : ""} aria-pressed="${s === t.etat}">${esc(etatLabel(s))}</button>`).join("")}</div>
-    </section>
-    <div class="sfacts">
-      <div><span>Échéance</span><b>${t.echeance ? esc(fd(t.echeance)) : "Aucune"}</b>${t.echeance && !d ? `<small>${due(t.echeance)}</small>` : ""}</div>
-      <div><span>Projet</span><b>${t.projets.length ? t.projets.map((p) => `<a href="#/projets/${p}">${esc(nameOfProj(p))}</a>`).join(", ") : "Aucun"}</b>${t.pistes ? `<small>${t.pistes} piste(s) liée(s)</small>` : ""}</div>
+    ${ficheTabs([["synthese", SECS.synthese], ["modifier", SECS.modifier], ["liens", SECS.liens, t.projets.length + t.contacts.length]], cur, "data-tsec")}
+    <section class="cbody" aria-label="${SECS[cur]}">${body}</section>`;
+}
+
+function synthese(o, nameOfProj) {
+  const t = o.task, d = isDone(t), busy = o.saving.has("Échéance");
+  return `<div class="sfacts">
+      <div><span>État</span><b>${esc(etatLabel(t.etat) || "Non renseigné")}</b>${t.prio ? `<small>${esc(t.prio)}</small>` : ""}</div>
+      <div><span>Échéance</span><b>${t.echeance ? esc(fd(t.echeance)) : "Aucune"}</b>${t.echeance && !d ? `<small>${due(t.echeance)}</small>` : ""}
+        ${o.values ? `<label class="echq"><span class="sr">Changer l'échéance</span><input type="date" data-tprop="Échéance" value="${esc(String(o.values["Échéance"] || "").slice(0, 10))}" ${busy ? "disabled" : ""}></label>` : ""}</div>
+      <div><span>Bloc</span><b>${t.bloc ? esc(t.bloc) : "Non renseigné"}</b></div>
+      <div><span>Durée estimée</span><b>${t.dureeMin != null ? `${t.dureeMin} min` : t.partial ? "…" : "Non renseignée"}</b>${t.typeAction ? `<small>${taSpan(t.typeAction)}</small>` : ""}</div>
+      ${t.projets.map((p) => `<a class="sfact-link" href="#/projets/${p}"><span>Projet</span><b>${esc(nameOfProj(p))}</b><small>Ouvrir le projet ›</small></a>`).join("")}
+      ${t.pistes ? `<div><span>Piste</span><b>${t.pistes} piste${t.pistes > 1 ? "s" : ""} liée${t.pistes > 1 ? "s" : ""}</b><small>Fiche piste au lot 2</small></div>` : ""}
     </div>
-    <section class="sec"><h2>Liens</h2>${o.values ? links(o, nameOfProj, nameOfContact) : `<p class="empty">Chargement…</p>`}</section>
-    <section class="sec"><h2>Modifier</h2>${o.values ? form(o) : `<p class="empty">Chargement des champs…</p>`}</section>
-    ${t.recap ? `<section class="sec"><h2>Récap</h2><p class="notes">${esc(t.recap)}</p></section>` : ""}
-    ${t.mesNotes ? `<section class="sec"><h2>Mes notes</h2><p class="notes">${esc(t.mesNotes)}</p></section>` : ""}
-    ${t.ordreAgent && t.ordreAgent !== "Fait" ? `<div class="banner ${t.ordreAgent === "Bloqué" ? "" : "info"}">${ic("alert", "ic-sm")}<span>Ordre de mission ${esc(t.ordreAgent.toLowerCase())}${t.ordreMission ? " · " + esc(t.ordreMission.slice(0, 200)) : ""}</span></div>` : ""}
-    ${t.syntheseAgent ? `<section class="sec"><h2>Synthèse agent</h2><p class="notes">${esc(t.syntheseAgent)}</p></section>` : ""}
-    ${t.modifie ? `<p class="small muted">Modifiée dans Notion le ${esc(new Date(t.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}. Récap et notes se modifient dans Notion.</p>` : ""}`;
+    ${!t.projets.length && !t.pistes ? `<div class="banner dashed">${ic("alert", "ic-sm")}<span>Tâche rattachée à aucun projet ni piste.</span><button class="btn sm" data-tsec="liens">Rattacher</button></div>` : ""}
+    ${t.recap ? `<h3 class="sh">Récap</h3><p class="notes">${esc(t.recap)}</p>` : ""}
+    ${t.brouillon || t.lienSource ? `<div class="dact" style="margin:12px 0">${t.brouillon ? `<a class="btn sm pri" href="${esc(t.brouillon)}" target="_blank" rel="noopener">${ic("mail", "ic-sm")}Brouillon Gmail</a>` : ""}${t.lienSource ? `<a class="btn sm" href="${esc(t.lienSource)}" target="_blank" rel="noopener">${ic("ext", "ic-sm")}Source</a>` : ""}</div>` : ""}
+    ${t.syntheseAgent ? `<h3 class="sh">Synthèse agent</h3><p class="notes">${esc(t.syntheseAgent)}</p>` : ""}
+    ${t.modifie ? `<p class="small muted" style="margin-top:14px">Modifiée dans Notion le ${esc(new Date(t.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}. Récap et notes se modifient dans Notion.</p>` : ""}`;
 }
 
 function links(o, nameOfProj, nameOfContact) {
@@ -327,7 +379,23 @@ export function bindTodoEvents(root) {
     const v = e.target.closest("[data-tv]");
     if (v) { S.f.v = v.dataset.tv; render(); if (S.f.v === "faites" && !S.done) loadDone().then(render); return; }
     const chk = e.target.closest("[data-tdone]");
-    if (chk) { e.preventDefault(); toggleDone(chk.dataset.tdone, chk); }
+    if (chk) { e.preventDefault(); toggleDone(chk.dataset.tdone, chk); return; }
+    const m = e.target.closest("[data-tmode]");
+    if (m) { S.f.mode = m.dataset.tmode; render(); }
+  });
+  // Glisser-déposer du kanban (souris, ordinateur).
+  let dragId = null;
+  root.addEventListener("dragstart", (e) => { const c = e.target.closest?.("[data-drag]"); if (!c) return; dragId = c.dataset.drag; c.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", dragId); });
+  root.addEventListener("dragend", (e) => { e.target.closest?.("[data-drag]")?.classList.remove("dragging"); root.querySelectorAll(".col.over").forEach((c) => c.classList.remove("over")); });
+  root.addEventListener("dragover", (e) => { const col = e.target.closest?.("[data-drop]"); if (!col || !dragId) return; e.preventDefault(); root.querySelectorAll(".col.over").forEach((c) => c !== col && c.classList.remove("over")); col.classList.add("over"); });
+  root.addEventListener("drop", async (e) => {
+    const col = e.target.closest?.("[data-drop]"); if (!col || !dragId) return;
+    e.preventDefault(); col.classList.remove("over");
+    const id = dragId, etat = col.dataset.drop; dragId = null;
+    const t = (S.items || []).concat(S.done || []).find((x) => x.id === id);
+    if (!t || t.etat === etat) return;
+    try { await update(id, { "État": etat }, `État : ${etatLabel(etat)}.`); } catch (err) { toast(err.message, "err"); }
+    render(); renderDrawer();
   });
   root.addEventListener("input", (e) => { if (e.target.id === "tf-q") { S.f.q = e.target.value; render(); } });
   root.addEventListener("change", (e) => { if (e.target.id === "tf-p") { S.f.proj = e.target.value; render(); } });
@@ -336,6 +404,8 @@ export function bindTodoEvents(root) {
 export function bindTodoDrawerEvents(root) {
   root.addEventListener("click", (e) => {
     if (!ownsDrawer("todo") || !S.open || S.open.isNew) return;
+    const sec = e.target.closest("[data-tsec]");
+    if (sec) { S.open.sec = sec.dataset.tsec; renderDrawer(); root.scrollTop = 0; return; }
     const st = e.target.closest("[data-tstate]");
     if (st) { const s = st.dataset.tstate; saving("État", () => update(S.open.id, { "État": s }, `État : ${etatLabel(s)}.`)); return; }
     const rm = e.target.closest("[data-trm]");
