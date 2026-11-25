@@ -1,6 +1,6 @@
 // Vue « Contacts » : liste des contacts actifs et fiche modifiable.
 // Chaque vue du cockpit expose la même interface : { id, label, icon, render(), open(id) }.
-import { contactsApi, todoApi } from "./api.js";
+import { contactsApi, todoApi, projetsIndex } from "./api.js";
 import { $, esc, ic, av, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, isDone } from "./ui.js";
 
 const S = {
@@ -103,7 +103,11 @@ async function openContact(id) {
   setDrawerOwner("contacts");
   renderDrawer();
   // Tâches liées, chargées en parallèle de la fiche.
-  todoApi.list({ contact: id }).then((r) => { if (S.open?.id === id) { S.open.tasks = r.tasks; renderDrawer(); } })
+  todoApi.list({ contact: id }).then(async (r) => {
+    let projets = [];
+    try { projets = await projetsIndex(); } catch { /* noms indisponibles */ }
+    if (S.open?.id === id) { S.open.tasks = r.tasks; S.open.projets = projets; renderDrawer(); }
+  })
     .catch(() => { if (S.open?.id === id) { S.open.tasks = "error"; renderDrawer(); } });
   try {
     if (!S.schema) S.schema = await contactsApi.schema();
@@ -163,7 +167,12 @@ function tasksSection(o) {
   const open = t.filter((x) => !isDone(x)), done = t.filter(isDone);
   const row = (x) => `<a class="row" href="#/todo/${x.id}"><div class="rm"><div class="rt ${isDone(x) ? "strike" : ""}">${esc(x.nom)}</div>
     <div class="ameta">${x.prio === "P1" && !isDone(x) ? chip("P1", "red") : ""}${etatChip(x.etat, isDone(x))}</div></div><div class="rr">${isDone(x) ? "" : due(x.echeance)}</div></a>`;
+  // Projets du contact : ceux de ses tâches (ouvertes et terminées).
+  const nid = (x) => String(x).replace(/-/g, "");
+  const pids = [...new Set(t.flatMap((x) => x.projets.map(nid)))];
+  const pj = pids.map((p) => (o.projets || []).find((x) => nid(x.id) === p)).filter(Boolean);
   return `<section class="sec">${head}
+    ${pj.length ? `<div class="chips" style="margin-bottom:8px">${pj.map((p) => `<a class="chip pj" href="#/projets/${p.id}">${ic("folder", "ic-sm")}${esc(p.nom)}</a>`).join("")}</div>` : ""}
     ${open.length ? `<div class="list">${open.map(row).join("")}</div>` : `<p class="empty">Aucune tâche ouverte.</p>`}
     ${done.length ? `<details class="more"><summary>${done.length} terminée${done.length > 1 ? "s" : ""} ou annulée${done.length > 1 ? "s" : ""}</summary><div class="list">${done.map(row).join("")}</div></details>` : ""}</section>`;
 }

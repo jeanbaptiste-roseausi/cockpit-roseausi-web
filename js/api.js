@@ -48,3 +48,16 @@ export const todoApi = {
   update: (id, changes) => call("todo", `/${id}`, { method: "PATCH", body: { changes } }),
   create: (values) => call("todo", "", { method: "POST", body: { values } }),
 };
+
+export const projetsApi = {
+  list: () => call("projets"),
+  get: (id) => call("projets", `/${id}`),
+  update: (id, changes) => call("projets", `/${id}`, { method: "PATCH", body: { changes } }),
+};
+
+/** Index léger des projets (id, nom, état), partagé par les vues, chargé une fois. */
+let projetsIdx = null;
+export function projetsIndex() {
+  if (!projetsIdx) projetsIdx = todoApi.schema().then((r) => r.projets || []).catch((e) => { projetsIdx = null; throw e; });
+  return projetsIdx;
+}

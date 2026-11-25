@@ -29,7 +29,8 @@ export const todoView = {
     if (!S.items) await load();
   },
   open: (id) => (id === "new" ? openNew() : openTask(id)),
-  openNew: (contactId) => openNew(contactId),
+  // #/todo/new/<id du contact> ou #/todo/new/projet/<id du projet>
+  openNew: (a, b) => (a === "projet" ? openNew(null, b) : openNew(a)),
   close: () => { S.open = null; },
   reload: () => { S.justDone.clear(); S.done = null; return load(true); },
 };
@@ -196,7 +197,7 @@ function renderDrawer() {
     </section>
     <div class="sfacts">
       <div><span>Échéance</span><b>${t.echeance ? esc(fd(t.echeance)) : "Aucune"}</b>${t.echeance && !d ? `<small>${due(t.echeance)}</small>` : ""}</div>
-      <div><span>Projet</span><b>${t.projets.length ? t.projets.map((p) => esc(nameOfProj(p))).join(", ") : "Aucun"}</b>${t.pistes ? `<small>${t.pistes} piste(s) liée(s)</small>` : ""}</div>
+      <div><span>Projet</span><b>${t.projets.length ? t.projets.map((p) => `<a href="#/projets/${p}">${esc(nameOfProj(p))}</a>`).join(", ") : "Aucun"}</b>${t.pistes ? `<small>${t.pistes} piste(s) liée(s)</small>` : ""}</div>
     </div>
     <section class="sec"><h2>Liens</h2>${o.values ? links(o, nameOfProj, nameOfContact) : `<p class="empty">Chargement…</p>`}</section>
     <section class="sec"><h2>Modifier</h2>${o.values ? form(o) : `<p class="empty">Chargement des champs…</p>`}</section>
@@ -213,7 +214,7 @@ function links(o, nameOfProj, nameOfContact) {
   const projChoices = projets().filter((p) => !linkedP.has(nid(p.id)) && p.etat !== "Annulé" && p.etat !== "Terminé");
   const contactChoices = contactsList.sync().filter((c) => !linkedC.has(nid(c.id)));
   return `<dl class="kv">
-    <dt>Projets</dt><dd><div class="chips">${t.projets.map((p) => `<span class="chip pj">${ic("folder", "ic-sm")}${esc(nameOfProj(p))}<button class="x" data-trel="Projets" data-trm="${p}" aria-label="Retirer le projet ${esc(nameOfProj(p))}" ${busyP || t.projetsMore ? "disabled" : ""}>×</button></span>`).join("") || `<span class="muted small">Aucun</span>`}</div>
+    <dt>Projets</dt><dd><div class="chips">${t.projets.map((p) => `<span class="chip pj">${ic("folder", "ic-sm")}<a href="#/projets/${p}">${esc(nameOfProj(p))}</a><button class="x" data-trel="Projets" data-trm="${p}" aria-label="Retirer le projet ${esc(nameOfProj(p))}" ${busyP || t.projetsMore ? "disabled" : ""}>×</button></span>`).join("") || `<span class="muted small">Aucun</span>`}</div>
       ${t.projetsMore ? "" : `<label class="sr" for="tl-p">Ajouter un projet</label><select class="sel addrel" id="tl-p" data-tadd="Projets" ${busyP ? "disabled" : ""}><option value="">+ Ajouter un projet</option>${projChoices.map((p) => `<option value="${p.id}">${esc(p.nom)}${p.etat === "Prospect" ? " (prospect)" : ""}</option>`).join("")}</select>`}</dd>
     <dt>Contacts</dt><dd><div class="chips">${t.contacts.map((c) => `<span class="chip"><a href="#/contacts/${c}">${esc(nameOfContact(c))}</a><button class="x" data-trel="${CONTACTS_REL}" data-trm="${c}" aria-label="Retirer ${esc(nameOfContact(c))}" ${busyC || t.contactsMore ? "disabled" : ""}>×</button></span>`).join("") || `<span class="muted small">Aucun</span>`}</div>
       ${t.contactsMore ? "" : `<label class="sr" for="tl-c">Ajouter un contact</label><input class="inp addrel" id="tl-c" list="tl-cl" placeholder="+ Ajouter un contact (nom)" autocomplete="off" ${busyC ? "disabled" : ""}>
@@ -259,8 +260,8 @@ async function saving(prop, fn) {
 
 // ---------------- Création ----------------
 
-async function openNew(contactId) {
-  S.open = { id: "new", isNew: true, contactId: contactId || null, saving: new Set(), error: null };
+async function openNew(contactId, projetId) {
+  S.open = { id: "new", isNew: true, contactId: contactId || null, projetId: projetId || null, saving: new Set(), error: null };
   setDrawerOwner("todo");
   renderDrawer();
   try { if (!S.schema) S.schema = await todoApi.schema(); } catch (e) { S.open.error = e.message; }
@@ -281,11 +282,11 @@ function newForm(o) {
       ${field("Échéance", ed["Échéance"], "", false, "tnew", "tn-")}
       ${ed["Prio"] ? field("Prio", ed["Prio"], "", false, "tnew", "tn-") : ""}
       ${ed["Type d'action"] ? field("Type d'action", ed["Type d'action"], "", false, "tnew", "tn-") : ""}
-      <div class="fld"><label for="tn-proj">Projet</label><select id="tn-proj"><option value="">Aucun</option>${projChoices.map((p) => `<option value="${p.id}">${esc(p.nom)}</option>`).join("")}</select></div>
+      <div class="fld"><label for="tn-proj">Projet</label><select id="tn-proj"><option value="">Aucun</option>${projChoices.map((p) => `<option value="${p.id}" ${o.projetId && nid(o.projetId) === nid(p.id) ? "selected" : ""}>${esc(p.nom)}</option>`).join("")}</select></div>
       <div class="fld"><label for="tn-contact">Contact</label><input id="tn-contact" list="tn-cl" autocomplete="off" placeholder="Nom du contact" value="${esc(c?.nom || "")}">
         <datalist id="tn-cl">${contactsList.sync().map((x) => `<option value="${esc(x.nom)}">`).join("")}</datalist></div>
       ${o.error ? `<div class="banner wide">${ic("alert", "ic-sm")}<span>${esc(o.error)}</span></div>` : ""}
-      <div class="mfoot wide"><a class="btn sm" href="${o.contactId ? `#/contacts/${o.contactId}` : "#/todo"}">Annuler</a><button class="btn sm pri" type="submit" ${o.saving.has("new") ? "disabled" : ""}>${o.saving.has("new") ? "Création…" : "Créer dans Notion"}</button></div>
+      <div class="mfoot wide"><a class="btn sm" href="${o.contactId ? `#/contacts/${o.contactId}` : o.projetId ? `#/projets/${o.projetId}` : "#/todo"}">Annuler</a><button class="btn sm pri" type="submit" ${o.saving.has("new") ? "disabled" : ""}>${o.saving.has("new") ? "Création…" : "Créer dans Notion"}</button></div>
     </form>`;
 }
 
