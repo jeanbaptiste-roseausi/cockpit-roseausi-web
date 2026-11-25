@@ -2,9 +2,9 @@
 // avec la page Contexte, les tâches ouvertes et les derniers échanges, changement d'état.
 import { projetsApi } from "./api.js";
 import { setTaskEtat } from "./todo.js";
-import { $, esc, ic, av, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, fmtIcon, taSpan } from "./ui.js";
+import { $, esc, ic, av, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, fmtIcon, taSpan, syncOf, syncSpan, staleBanner } from "./ui.js";
 
-const S = { items: null, etats: [], regles: null, loading: false, error: null, fetchedAt: null, f: { v: "En cours", q: "" }, open: null };
+const S = { items: null, etats: [], regles: null, loading: false, error: null, fetchedAt: null, synchro: null, f: { v: "En cours", q: "" }, open: null };
 let host = null, drawerHost = null;
 
 export const projetsView = {
@@ -26,7 +26,7 @@ async function load() {
   S.loading = true; S.error = null; render();
   try {
     const r = await projetsApi.list();
-    S.items = r.projets; S.etats = r.etats; S.regles = r.regles; S.fetchedAt = r.fetchedAt;
+    S.items = r.projets; S.etats = r.etats; S.regles = r.regles; S.fetchedAt = r.fetchedAt; S.synchro = syncOf(r);
   } catch (e) { S.error = e.message; }
   finally { S.loading = false; render(); }
 }
@@ -62,7 +62,7 @@ function render() {
     const q = nrm(f.q.trim());
     const list = S.items.filter((p) => p.etat === f.v && (!q || nrm(p.nomComplet + " " + p.nom).includes(q)));
     const missions = list.filter((p) => !p.regulier), rec = list.filter((p) => p.regulier);
-    body = `<p class="small muted" style="margin:-4px 0 12px">Lus dans Notion à ${new Date(S.fetchedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}${S.loading ? ", mise à jour…" : ""}. Budget consommé écrit chaque lundi par Budget missions, météo chaque nuit ; orange à 80 %, rouge à 100 %, sommeil après ${S.regles?.sommeilJours ?? 14} jours sans entrée au journal.</p>
+    body = `${staleBanner(S.synchro)}<p class="small muted" style="margin:-4px 0 12px">${syncSpan(S.synchro, true)}${S.loading ? ", mise à jour…" : ""}. Budget consommé écrit chaque lundi par Budget missions, météo chaque nuit ; orange à 80 %, rouge à 100 %, sommeil après ${S.regles?.sommeilJours ?? 14} jours sans entrée au journal.</p>
       ${missions.length ? `<div class="grid3">${missions.map(card).join("")}</div>` : `<p class="empty">Aucun projet.</p>`}
       ${rec.length ? `<h2 style="margin:22px 0 10px">Activités récurrentes</h2><div class="grid3">${rec.map(card).join("")}</div>` : ""}`;
   }
@@ -95,7 +95,7 @@ async function openProjet(id) {
   try {
     const r = await projetsApi.get(id);
     if (S.open?.id !== id) return;
-    S.open.p = r.projet; S.open.fetchedAt = r.fetchedAt;
+    S.open.p = r.projet; S.open.fetchedAt = r.fetchedAt; S.open.synchro = syncOf(r);
     if (r.etats?.length) S.etats = r.etats;
   } catch (e) { if (S.open?.id === id) S.open.error = e.message; }
   renderDrawer();
@@ -137,7 +137,7 @@ function renderDrawer() {
     ${full && p.interlocuteurs.length ? `<section class="sec"><h2>Interlocuteurs</h2><div class="chips">${p.interlocuteurs.map((c) => `<a class="chip pers" href="#/contacts/${c.id}">${av({ nom: c.nom, type: "Personne" }, "xs")}${esc(c.nom)}</a>`).join("")}</div><p class="small muted" style="margin-top:8px">Contacts cités dans les derniers échanges et les tâches ouvertes.</p></section>` : ""}
     ${budgetSection(p)}
     ${infoSection(p, full)}
-    <p class="small muted">Lu dans Notion${o.fetchedAt ? ` à ${new Date(o.fetchedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : ""}. Fiche modifiée le ${esc(new Date(p.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}${p.contexte?.modifie ? ` ; page Contexte modifiée le ${esc(new Date(p.contexte.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}` : ""}.</p>`;
+    <p class="small muted">${o.synchro ? syncSpan(o.synchro, true) : "Lu dans Notion"}${p.contexteIndisponible ? ". Page Contexte, opportunités et thèmes non lus : Notion ne répond pas" : ""}. Fiche modifiée le ${esc(new Date(p.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}${p.contexte?.modifie ? ` ; page Contexte modifiée le ${esc(new Date(p.contexte.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}` : ""}.</p>`;
 }
 
 // ---------------- Budget et informations ----------------
@@ -230,7 +230,7 @@ async function setState(s) {
   o.saving = true; renderDrawer();
   try {
     const r = await projetsApi.update(o.id, { "État": s });
-    o.p = r.projet; o.fetchedAt = r.fetchedAt;
+    o.p = r.projet; o.fetchedAt = r.fetchedAt; o.synchro = syncOf(r);
     if (S.items) { const i = S.items.findIndex((x) => x.id === o.id); if (i >= 0) S.items[i] = { ...S.items[i], etat: r.projet.etat, modifie: r.projet.modifie }; }
     toast(`État du projet : ${s}.`);
   } catch (e) { toast(e.message, "err"); }
@@ -252,3 +252,4 @@ export function bindProjetsDrawerEvents(root) {
     if (c) { e.preventDefault(); toggleTask(c.dataset.pdone); }
   });
 }
+

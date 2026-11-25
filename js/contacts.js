@@ -1,10 +1,10 @@
 // Vue « Contacts » : liste des contacts actifs et fiche modifiable.
 // Chaque vue du cockpit expose la même interface : { id, label, icon, render(), open(id) }.
 import { contactsApi, todoApi, projetsIndex } from "./api.js";
-import { $, esc, ic, av, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, ficheTabs, parcChip, taSpan } from "./ui.js";
+import { $, esc, ic, av, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, ficheTabs, parcChip, taSpan, syncOf, syncSpan, staleBanner } from "./ui.js";
 
 const S = {
-  items: null, schema: null, loading: false, error: null, fetchedAt: null,
+  items: null, schema: null, loading: false, error: null, fetchedAt: null, synchro: null,
   f: { q: "", type: "tous", parcours: "", mode: "liste", sort: "" },
   open: null, // fiche ouverte : { id, contact, values, saving: Set, sec }
 };
@@ -38,7 +38,7 @@ async function load(force = false) {
   S.loading = true; S.error = null; render();
   try {
     const [list, schema] = await Promise.all([contactsApi.list(), S.schema && !force ? S.schema : contactsApi.schema()]);
-    S.items = list.contacts; S.fetchedAt = list.fetchedAt; S.schema = schema;
+    S.items = list.contacts; S.fetchedAt = list.fetchedAt; S.synchro = syncOf(list); S.schema = schema;
   } catch (e) {
     S.error = e.message;
   } finally {
@@ -83,7 +83,7 @@ function render() {
   else {
     const list = filtered();
     const srt = (v, lab) => `<button class="lnk ${f.sort === v ? "on" : ""}" data-csort="${v}">${lab}</button>`;
-    body = `<p class="small muted" style="margin:-4px 0 10px">${list.length} fiche${list.length > 1 ? "s" : ""} sur ${S.items.length} contacts actifs${S.fetchedAt ? `, lus dans Notion à ${new Date(S.fetchedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : ""}${S.loading ? ", mise à jour…" : ""}. Trier par ${srt("", "ordre Notion")}, ${srt("recent", "dernier échange")}, ${srt("nom", "nom")}.</p>
+    body = `${staleBanner(S.synchro)}<p class="small muted" style="margin:-4px 0 10px">${list.length} fiche${list.length > 1 ? "s" : ""} sur ${S.items.length} contacts actifs${S.synchro ? `, ${syncSpan(S.synchro)}` : ""}${S.loading ? ", mise à jour…" : ""}. Trier par ${srt("", "ordre Notion")}, ${srt("recent", "dernier échange")}, ${srt("nom", "nom")}.</p>
       ${!list.length ? `<p class="empty">Aucun contact pour ces filtres.</p>` : f.mode === "cartes" ? `<div class="cgrid">${list.slice(0, 400).map(card).join("")}</div>` : `<div class="card"><div class="list">${list.slice(0, 400).map(row).join("")}</div></div>`}
       ${list.length > 400 ? `<p class="small muted" style="margin-top:8px">Seules les 400 premières fiches sont affichées, affine le filtre.</p>` : ""}`;
   }

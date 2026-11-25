@@ -121,3 +121,59 @@ export function parcChip(v) {
   const col = PARC_COL.find(([re]) => re.test(v))?.[1] || "#7a7a7a";
   return `<span class="chip parc"><i class="dot" style="background:${col}"></i>${esc(v)}</span>`;
 }
+
+// ---------------- Synchronisation avec Notion (lot M) ----------------
+// Les fonctions lisent un miroir Postgres de Notion ; chaque réponse dit d'où viennent les données
+// (synchro.source : « miroir » ou « notion ») et l'heure de la dernière synchronisation.
+
+/** Au-delà de ce délai sans synchronisation, un bandeau le signale. */
+export const STALE_MIN = 30;
+
+const hm = (d) => d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+export const syncMinutes = (iso) => (iso ? (Date.now() - new Date(iso).getTime()) / 60_000 : null);
+
+export function ago(iso) {
+  const m = syncMinutes(iso);
+  if (m == null) return "";
+  if (m < 1) return "à l'instant";
+  if (m < 60) return `il y a ${Math.floor(m)} min`;
+  if (m < 24 * 60) return `il y a ${Math.floor(m / 60)} h${String(Math.floor(m % 60)).padStart(2, "0")}`;
+  const d = new Date(iso);
+  return `le ${d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} à ${hm(d)}`;
+}
+
+/** Synchro d'une réponse ; une réponse sans « synchro » (ancienne fonction) vaut lecture directe. */
+export const syncOf = (r) => r?.synchro ?? (r?.fetchedAt ? { source: "notion", synchronise: r.fetchedAt } : null);
+
+function syncText(sy) {
+  if (!sy?.synchronise) return sy?.source === "miroir" ? "jamais synchronisé avec Notion" : "";
+  return sy.source === "miroir" ? `synchronisé avec Notion ${ago(sy.synchronise)}` : `lu dans Notion à ${hm(new Date(sy.synchronise))}`;
+}
+
+const cap1 = (t, cap) => (cap && t ? t[0].toUpperCase() + t.slice(1) : t);
+
+/** Mention discrète « synchronisé il y a 3 min », tenue à jour par l'horloge de app.js. cap : majuscule initiale. */
+export const syncSpan = (sy, cap = false) => sy ? `<span class="sync" data-sync="${esc(sy.synchronise ?? "")}" data-src="${esc(sy.source)}"${cap ? ` data-cap="1"` : ""}>${esc(cap1(syncText(sy), cap))}</span>` : "";
+
+/** Bandeau affiché quand la dernière synchronisation date de plus de 30 minutes (ou n'a jamais eu lieu). */
+export function staleBanner(sy) {
+  if (sy?.source !== "miroir") return "";
+  const m = syncMinutes(sy.synchronise);
+  const late = m == null || m > STALE_MIN;
+  return `<div class="banner sync-stale" data-stale="${esc(sy.synchronise ?? "")}"${late ? "" : " hidden"}>${ic("alert", "ic-sm")}<span>Pas de synchronisation avec Notion depuis <b class="stale-ago">${esc(sy.synchronise ? ago(sy.synchronise).replace(/^il y a /, "") : "le début")}</b> : ce qui est affiché peut avoir changé dans Notion. <button class="lnk" data-act="reload">Actualiser</button></span></div>`;
+}
+
+/** Met à jour les mentions et bandeaux de synchronisation déjà affichés (toutes les 30 secondes). */
+export function tickSync(root = document) {
+  root.querySelectorAll("[data-sync]").forEach((el) => {
+    const sy = { source: el.dataset.src, synchronise: el.dataset.sync || null };
+    el.textContent = cap1(syncText(sy), el.dataset.cap === "1");
+  });
+  root.querySelectorAll("[data-stale]").forEach((el) => {
+    const iso = el.dataset.stale || null;
+    const m = syncMinutes(iso);
+    el.hidden = !(m == null || m > STALE_MIN);
+    const b = el.querySelector(".stale-ago");
+    if (b && iso) b.textContent = ago(iso).replace(/^il y a /, "");
+  });
+}

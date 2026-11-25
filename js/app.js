@@ -6,7 +6,8 @@ import { contactsView, bindContactEvents, bindDrawerEvents } from "./contacts.js
 import { todoView, bindTodoEvents, bindTodoDrawerEvents } from "./todo.js";
 import { projetsView, bindProjetsEvents, bindProjetsDrawerEvents } from "./projets.js";
 import { mountSearch } from "./search.js";
-import { $, esc, ic, toast } from "./ui.js";
+import { $, esc, ic, tickSync, toast } from "./ui.js";
+import { miroirApi, simulation } from "./api.js";
 
 // Vues disponibles, dans l'ordre des onglets. L'agent de fiche et les mails viendront s'ajouter ici.
 const VIEWS = [contactsView, todoView, projetsView];
@@ -32,6 +33,7 @@ function shell() {
         <button class="iconbtn mob-only" data-act="opensearch" aria-label="Rechercher">${ic("search")}</button>
         <button class="iconbtn mob-only" data-act="reload" aria-label="Actualiser">${ic("refresh")}</button>
         <button class="iconbtn mob-only" data-act="logout" aria-label="Déconnexion">${ic("logout")}</button></div>
+      ${simulation() ? `<div class="banner sim">${ic("alert", "ic-sm")}<span><b>Simulation : Notion indisponible.</b> Les lectures viennent du miroir, les modifications sont refusées. Pour arrêter, ouvre l'adresse avec <code>?simuler=non</code>.</span></div>` : ""}
       <main id="view"></main>
     </div>
     <nav id="tabbar" aria-label="Navigation">${VIEWS.map((v) => `<button class="${v === current ? "on" : ""}" data-nav="${v.id}">${ic(v.icon)}${esc(v.label)}</button>`).join("")}${SOON.map((v) => `<button disabled>${ic(v.icon)}${esc(v.label)}</button>`).join("")}</nav>`;
@@ -115,13 +117,32 @@ async function applySession(s) {
   if (changed || !current) { current = null; route(); }
 }
 
+// Actualiser : relecture incrémentale du miroir (pages modifiées dans Notion), puis la vue est relue.
+let syncing = false;
+async function actualiser() {
+  if (syncing) return;
+  syncing = true;
+  toast("Relecture des changements dans Notion…");
+  try {
+    const r = await miroirApi.sync();
+    const err = (r.resultats ?? []).find((x) => x.erreur);
+    if (err) toast("Notion ne répond pas : affichage depuis la dernière synchronisation.", "err");
+  } catch (e) {
+    toast(e.status === 504 || e.code === "notion_unreachable" ? "Notion ne répond pas : affichage depuis la dernière synchronisation." : e.message, "err");
+  } finally {
+    syncing = false;
+  }
+  current?.reload?.();
+}
+setInterval(() => tickSync(), 30_000);
+
 // Événements globaux
 document.addEventListener("click", (e) => {
   const nav = e.target.closest("[data-nav]");
   if (nav) { location.hash = `#/${nav.dataset.nav}`; return; }
   const act = e.target.closest("[data-act]")?.dataset.act;
   if (act === "logout") signOut();
-  if (act === "reload") { current?.reload?.(); toast("Relecture depuis Notion…"); }
+  if (act === "reload") actualiser();
   if (act === "close") closeDrawer();
   if (act === "back") history.back();
   // Fiche étroite (téléphone) : le panneau Mes notes et agent est sous la fiche, un geste y mène.

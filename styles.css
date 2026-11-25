@@ -216,6 +216,12 @@ b.warn, .stats b.warn, .pk b.warn { color: var(--st-amber); }
 .banner .ic { color: var(--alert); margin-top: 2px; }
 .banner.info { background: var(--teal-50); color: var(--ink); }
 .banner.info .ic { color: var(--teal-strong); }
+/* Lot M : synchronisation avec Notion */
+.banner.sync-stale { margin: 0 0 10px; }
+.banner.sync-stale[hidden] { display: none; }
+.banner.sim { margin: 0 16px 0; border-radius: 0 0 var(--r-panel) var(--r-panel); }
+.banner.sim code { font-size: 12.5px; }
+.sync { white-space: nowrap; }
 
 /* Fiche plein écran (lot 1, repris du POC) : posée sur la zone de contenu, menu de gauche visible,
    corps de la fiche à gauche, panneau Mes notes et agent à droite. */

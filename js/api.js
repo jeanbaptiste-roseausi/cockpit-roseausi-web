@@ -6,6 +6,16 @@ export class ApiError extends Error {
   constructor(status, code, message, details) { super(message); this.status = status; this.code = code; this.details = details; }
 }
 
+// Recette du lot M : « ?simuler=notion-indisponible » dans l'adresse fait refuser tout appel à Notion
+// par les fonctions (pour cet onglet) ; « ?simuler=non » arrête. Rien d'autre ne change.
+const SIM_KEY = "cockpit.simulation";
+try {
+  const q = new URLSearchParams(location.search).get("simuler");
+  if (q === "notion-indisponible") sessionStorage.setItem(SIM_KEY, q);
+  if (q === "non") sessionStorage.removeItem(SIM_KEY);
+} catch { /* stockage indisponible : pas de simulation */ }
+export const simulation = () => { try { return sessionStorage.getItem(SIM_KEY); } catch { return null; } };
+
 export async function call(fn, path = "", { method = "GET", body } = {}) {
   const session = await currentSession();
   if (!session) throw new ApiError(401, "no_session", "Connexion requise.");
@@ -17,6 +27,7 @@ export async function call(fn, path = "", { method = "GET", body } = {}) {
         Authorization: `Bearer ${session.access_token}`,
         apikey: SUPABASE_PUBLISHABLE_KEY,
         ...(body ? { "Content-Type": "application/json" } : {}),
+        ...(simulation() ? { "x-cockpit-simulation": simulation() } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
     });
@@ -53,6 +64,12 @@ export const projetsApi = {
   list: () => call("projets"),
   get: (id) => call("projets", `/${id}`),
   update: (id, changes) => call("projets", `/${id}`, { method: "PATCH", body: { changes } }),
+};
+
+// Miroir de Notion (lot M) : relecture des pages modifiées dans Notion, à la demande (Actualiser).
+export const miroirApi = {
+  sync: () => call("miroir", "/sync", { method: "POST", body: { mode: "incrementale", attendre: true } }),
+  etat: () => call("miroir", "/etat"),
 };
 
 /** Index léger des projets (id, nom, état), partagé par les vues, chargé une fois. */

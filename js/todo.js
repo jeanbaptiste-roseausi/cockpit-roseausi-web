@@ -2,13 +2,13 @@
 // changement d'état en un clic, création de tâche.
 import { todoApi } from "./api.js";
 import { contactIndex } from "./contacts.js";
-import { $, esc, ic, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, etatLabel, isDone, ficheTop, renderSide, sideHTML, ficheTabs, taSpan } from "./ui.js";
+import { $, esc, ic, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, etatLabel, isDone, ficheTop, renderSide, sideHTML, ficheTabs, taSpan, syncOf, syncSpan, staleBanner } from "./ui.js";
 
 const PROSPECTION_PROJECT = "3e6a08ac559780ccb74ce21b2d7e2bbb"; // projet « Prospection » (filtre du POC)
 const CONTACTS_REL = "👱‍♀️ Contacts";
 
 const S = {
-  items: null, done: null, schema: null, loading: false, error: null, fetchedAt: null,
+  items: null, done: null, schema: null, loading: false, error: null, fetchedAt: null, synchro: null,
   f: { v: "ouvertes", proj: "", q: "", mode: "liste" },
   justDone: new Set(),  // tâches terminées pendant la session : restent visibles, barrées, jusqu'à l'actualisation
   open: null,           // fiche ouverte : { id, task, values, saving: Set, error }
@@ -40,7 +40,7 @@ async function load(force = false) {
   S.loading = true; S.error = null; render();
   try {
     const [list, schema] = await Promise.all([todoApi.list(), S.schema && !force ? S.schema : todoApi.schema()]);
-    S.items = list.tasks; S.fetchedAt = list.fetchedAt; S.schema = schema;
+    S.items = list.tasks; S.fetchedAt = list.fetchedAt; S.synchro = syncOf(list); S.schema = schema;
     if (S.f.v === "faites") await loadDone();
   } catch (e) { S.error = e.message; }
   finally { S.loading = false; render(); }
@@ -107,7 +107,7 @@ function render() {
   else {
     const list = filtered();
     const late = (S.items || []).filter((t) => !isDone(t) && t.echeance && ddiff(t.echeance) < 0).length;
-    body = `<p class="small muted" style="margin:-4px 0 10px">${list.length} tâche${list.length > 1 ? "s" : ""}${f.v === "faites" ? " terminées ou annulées ces 14 derniers jours" : ` sur ${S.items.filter((t) => !isDone(t)).length} ouvertes, dont ${late} en retard`}${S.fetchedAt ? `, lues dans Notion à ${new Date(S.fetchedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : ""}${S.loading ? ", mise à jour…" : ""}.</p>`;
+    body = `${staleBanner(S.synchro)}<p class="small muted" style="margin:-4px 0 10px">${list.length} tâche${list.length > 1 ? "s" : ""}${f.v === "faites" ? " terminées ou annulées ces 14 derniers jours" : ` sur ${S.items.filter((t) => !isDone(t)).length} ouvertes, dont ${late} en retard`}${S.synchro ? `, ${syncSpan(S.synchro)}` : ""}${S.loading ? ", mise à jour…" : ""}.</p>`;
     if (!list.length) body += `<p class="empty">Aucune tâche pour ces filtres.</p>`;
     else if (f.mode === "kanban") body += kanban(list);
     else if (f.v === "faites") body += `<div class="card"><div class="list">${list.map(row).join("")}</div></div>`;
