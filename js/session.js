@@ -67,5 +67,28 @@ export async function currentSession() {
   return data.session;
 }
 
-export const signOut = () => supabase.auth.signOut();
-export const onAuth = (cb) => supabase.auth.onAuthStateChange((_evt, session) => cb(session));
+// Écouteurs de session, prévenus aussi quand la déconnexion est forcée côté page.
+const authListeners = new Set();
+
+/**
+ * Déconnexion qui aboutit toujours. supabase-js abandonne la déconnexion quand la session
+ * enregistrée ne peut plus être rafraîchie (session révoquée ou expirée côté serveur) : il
+ * renvoie une erreur sans rien effacer, et la page reste bloquée sur « Session expirée ».
+ * Dans ce cas on efface nous-mêmes la session du navigateur et on prévient la page.
+ */
+export async function signOut() {
+  try {
+    const { error } = await supabase.auth.signOut();
+    if (!error) return;
+  } catch { /* on passe à l'effacement local */ }
+  try { await supabase.auth.signOut({ scope: "local" }); } catch { /* idem */ }
+  try {
+    for (const k of Object.keys(localStorage)) if (k.startsWith("sb-")) localStorage.removeItem(k);
+  } catch { /* stockage indisponible */ }
+  authListeners.forEach((cb) => cb(null));
+}
+
+export const onAuth = (cb) => {
+  authListeners.add(cb);
+  return supabase.auth.onAuthStateChange((_evt, session) => cb(session));
+};
