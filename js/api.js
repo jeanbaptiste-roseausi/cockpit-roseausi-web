@@ -33,10 +33,18 @@ export async function call(fn, path = "", { method = "GET", body } = {}) {
   return data;
 }
 
-// Fiche Contacts. Les futures fiches (TO DO, agent) ajouteront leur propre bloc ici.
+// Une entrée par fiche. L'agent de fiche ajoutera la sienne ici.
 export const contactsApi = {
   list: () => call("contacts"),
   schema: () => call("contacts", "/schema"),
   get: (id) => call("contacts", `/${id}`),
   update: (id, changes) => call("contacts", `/${id}`, { method: "PATCH", body: { changes } }),
+};
+
+export const todoApi = {
+  list: ({ scope, contact } = {}) => call("todo", contact ? `?contact=${encodeURIComponent(contact)}` : scope ? `?scope=${encodeURIComponent(scope)}` : ""),
+  schema: () => call("todo", "/schema"),
+  get: (id) => call("todo", `/${id}`),
+  update: (id, changes) => call("todo", `/${id}`, { method: "PATCH", body: { changes } }),
+  create: (values) => call("todo", "", { method: "POST", body: { values } }),
 };

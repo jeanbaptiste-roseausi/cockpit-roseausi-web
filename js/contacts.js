@@ -1,7 +1,7 @@
 // Vue « Contacts » : liste des contacts actifs et fiche modifiable.
 // Chaque vue du cockpit expose la même interface : { id, label, icon, render(), open(id) }.
-import { contactsApi } from "./api.js";
-import { $, esc, ic, av, nrm, fd, due, chip, toast } from "./ui.js";
+import { contactsApi, todoApi } from "./api.js";
+import { $, esc, ic, av, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, isDone } from "./ui.js";
 
 const S = {
   items: null, schema: null, loading: false, error: null, fetchedAt: null,
@@ -99,8 +99,12 @@ function row(c) {
 
 async function openContact(id) {
   const fromList = S.items?.find((c) => c.id === id);
-  S.open = { id, contact: fromList ? { ...fromList, partial: true } : null, values: null, saving: new Set(), error: null };
+  S.open = { id, contact: fromList ? { ...fromList, partial: true } : null, values: null, saving: new Set(), error: null, tasks: null };
+  setDrawerOwner("contacts");
   renderDrawer();
+  // Tâches liées, chargées en parallèle de la fiche.
+  todoApi.list({ contact: id }).then((r) => { if (S.open?.id === id) { S.open.tasks = r.tasks; renderDrawer(); } })
+    .catch(() => { if (S.open?.id === id) { S.open.tasks = "error"; renderDrawer(); } });
   try {
     if (!S.schema) S.schema = await contactsApi.schema();
     const r = await contactsApi.get(id);
@@ -115,7 +119,7 @@ async function openContact(id) {
 
 function renderDrawer() {
   const o = S.open;
-  if (!o || !drawerHost) return;
+  if (!o || !drawerHost || !ownsDrawer("contacts")) return;
   $("#dr-kind").textContent = o.contact?.type === "Organisation" ? "Organisation" : o.contact?.type === "Réseau" ? "Réseau" : "Contact";
   const c = o.contact;
   if (!c) {
@@ -143,11 +147,32 @@ function renderDrawer() {
       <div><span>Prochaine action</span><b>${c.prochaineAction ? esc(c.prochaineAction) : "Rien de prévu"}</b>${c.dateProchaineAction ? `<small>${due(c.dateProchaineAction)}</small>` : ""}</div>
       <div><span>Liens dans Notion</span><b class="small">${n(rel.opportunites)} opportunité(s) · ${n(rel.todo)} tâche(s) · ${n(rel.journal)} échange(s)</b>${c.partial ? "" : `<small>Recommandé par ${n(rel.recommandePar)} · a recommandé ${n(rel.aRecommande)}</small>`}</div>
     </div>
+    ${tasksSection(o)}
     <section class="sec"><h2>Fiche</h2>${o.values ? form(o) : `<p class="empty">Chargement des champs…</p>`}</section>
     ${c.notesContact ? `<section class="sec"><h2>Notes</h2><p class="notes">${esc(c.notesContact)}</p></section>` : ""}
     ${c.notesEntreprise ? `<section class="sec"><h2>Notes entreprise</h2><p class="notes">${esc(c.notesEntreprise)}</p></section>` : ""}
     ${c.syntheseAgent ? `<section class="sec"><h2>Synthèse agent</h2><p class="notes">${esc(c.syntheseAgent)}</p></section>` : ""}
     ${c.modifie ? `<p class="small muted">Modifié dans Notion le ${esc(new Date(c.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}. Les notes se modifient dans Notion.</p>` : ""}`;
+}
+
+function tasksSection(o) {
+  const t = o.tasks;
+  const head = `<h2>Tâches <a class="btn sm" style="margin-left:auto" href="#/todo/new/${o.id}">${ic("plus", "ic-sm")}Tâche</a></h2>`;
+  if (t === null) return `<section class="sec">${head}<p class="empty">Chargement des tâches…</p></section>`;
+  if (t === "error") return `<section class="sec">${head}<p class="empty">Tâches indisponibles pour l'instant.</p></section>`;
+  const open = t.filter((x) => !isDone(x)), done = t.filter(isDone);
+  const row = (x) => `<a class="row" href="#/todo/${x.id}"><div class="rm"><div class="rt ${isDone(x) ? "strike" : ""}">${esc(x.nom)}</div>
+    <div class="ameta">${x.prio === "P1" && !isDone(x) ? chip("P1", "red") : ""}${etatChip(x.etat, isDone(x))}</div></div><div class="rr">${isDone(x) ? "" : due(x.echeance)}</div></a>`;
+  return `<section class="sec">${head}
+    ${open.length ? `<div class="list">${open.map(row).join("")}</div>` : `<p class="empty">Aucune tâche ouverte.</p>`}
+    ${done.length ? `<details class="more"><summary>${done.length} terminée${done.length > 1 ? "s" : ""} ou annulée${done.length > 1 ? "s" : ""}</summary><div class="list">${done.map(row).join("")}</div></details>` : ""}</section>`;
+}
+
+/** Contacts actifs (chargés une fois), pour les listes de choix de la fiche TO DO. */
+export async function contactIndex() {
+  if (!S.items && !S.loading) await load();
+  else if (S.loading) await new Promise((r) => { const t = setInterval(() => { if (!S.loading) { clearInterval(t); r(); } }, 100); });
+  return S.items || [];
 }
 
 function form(o) {
@@ -158,7 +183,7 @@ function form(o) {
 function field(name, def, value, saving) {
   const id = "fx-" + nrm(name).replace(/[^a-z0-9]+/g, "-");
   const lab = `<label for="${id}">${esc(LABEL[name] || name)} <span class="fstate" data-state="${esc(name)}">${saving ? "Enregistrement…" : ""}</span></label>`;
-  const attrs = `id="${id}" data-prop="${esc(name)}" ${saving ? "disabled" : ""}`;
+  const attrs = `id="${id}" data-cprop="${esc(name)}" ${saving ? "disabled" : ""}`;
   const v = value ?? "";
   let input;
   if (def.options) {
@@ -174,7 +199,7 @@ function field(name, def, value, saving) {
 
 // Enregistrement d'un champ dès qu'il change (sélection) ou à la sortie du champ (texte).
 export async function saveField(el) {
-  const o = S.open, prop = el.dataset.prop;
+  const o = S.open, prop = el.dataset.cprop;
   if (!o || !o.values || !prop) return;
   const before = o.values[prop] ?? "";
   const val = el.value.trim();
@@ -214,8 +239,8 @@ export function bindContactEvents(root) {
   root.addEventListener("change", (e) => { if (e.target.id === "cf-p") { S.f.parcours = e.target.value; render(); } });
 }
 export function bindDrawerEvents(root) {
-  root.addEventListener("change", (e) => { if (e.target.dataset?.prop) saveField(e.target); });
+  root.addEventListener("change", (e) => { if (e.target.dataset?.cprop) saveField(e.target); });
   root.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && e.target.dataset?.prop && e.target.tagName === "INPUT") { e.preventDefault(); e.target.blur(); }
+    if (e.key === "Enter" && e.target.dataset?.cprop && e.target.tagName === "INPUT") { e.preventDefault(); e.target.blur(); }
   });
 }

@@ -36,3 +36,15 @@ export function toast(msg, kind = "") {
   clearTimeout(toastT);
   toastT = setTimeout(() => { t.className = ""; }, 3200);
 }
+
+// Le tiroir de fiche est partagé entre les vues : seule la vue qui l'a ouvert en dernier
+// a le droit de le redessiner (évite qu'une réponse tardive écrase une autre fiche).
+let drawerOwner = null;
+export const setDrawerOwner = (v) => { drawerOwner = v; };
+export const ownsDrawer = (v) => drawerOwner === v;
+
+/** Petite pastille d'état de tâche (classes du POC). */
+const ETAT_CL = { "A venir": "st-avenir", "A faire": "st-afaire", "En attente": "st-attente", "En cours": "st-encours", "À rédiger": "st-relire", "Prêt à relire": "st-relire", "Terminé": "st-termine", "Annulé": "st-annule" };
+export const etatChip = (e, always = false) => e && (always || e !== "A faire") ? `<span class="chip ${ETAT_CL[e] ?? ""}">${esc(e === "A faire" ? "À faire" : e === "A venir" ? "À venir" : e)}</span>` : "";
+export const etatLabel = (e) => e === "A faire" ? "À faire" : e === "A venir" ? "À venir" : e;
+export const isDone = (t) => t.etat === "Terminé" || t.etat === "Annulé";

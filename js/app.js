@@ -1,11 +1,13 @@
-// Point d'entrée : connexion, navigation par adresse (#/contacts, #/contacts/<id>), tiroir de fiche.
+// Point d'entrée : connexion, navigation par adresse, tiroir de fiche.
+// Adresses : #/contacts, #/contacts/<id>, #/todo, #/todo/<id>, #/todo/new, #/todo/new/<id du contact>.
 import { onAuth, sendMagicLink, signOut, isAllowed, currentSession, consumeUrlTokens } from "./session.js";
 import { contactsView, bindContactEvents, bindDrawerEvents } from "./contacts.js";
+import { todoView, bindTodoEvents, bindTodoDrawerEvents } from "./todo.js";
 import { $, esc, ic, toast } from "./ui.js";
 
-// Vues disponibles. TO DO et agent de fiche viendront s'ajouter ici.
-const VIEWS = [contactsView];
-const SOON = [{ id: "todo", label: "TO DO", icon: "todo" }, { id: "mails", label: "Mails", icon: "mail" }];
+// Vues disponibles, dans l'ordre des onglets. L'agent de fiche et les mails viendront s'ajouter ici.
+const VIEWS = [contactsView, todoView];
+const SOON = [{ id: "mails", label: "Mails", icon: "mail" }];
 
 let session = null;
 let current = null;
@@ -16,7 +18,7 @@ function shell() {
   const soon = (v) => `<li><button disabled title="Prochain jalon">${ic(v.icon)}<span class="nl">${esc(v.label)}</span><span class="soon">bientôt</span></button></li>`;
   $("#app").innerHTML = `
     <aside id="side">
-      <div class="brand"><div class="wm">RoseauSI</div><div class="brand-sub">Cockpit de pilotage</div><span class="poc-tag">Jalon 1</span></div>
+      <div class="brand"><div class="wm">RoseauSI</div><div class="brand-sub">Cockpit de pilotage</div><span class="poc-tag">Jalon 3</span></div>
       <ul class="nav">${VIEWS.map((v) => nav(v, v === current)).join("")}${SOON.map(soon).join("")}</ul>
       <div class="side-foot"><span>Connecté : <b>${esc(session?.user?.email)}</b></span>
         <div class="side-row"><button class="side-btn" data-act="reload">${ic("refresh", "ic-sm")}Actualiser</button><button class="side-btn" data-act="logout">${ic("logout", "ic-sm")}Déconnexion</button></div></div>
@@ -53,10 +55,11 @@ function loginScreen(msg = "", sent = false) {
 
 function route() {
   if (!session) return;
-  const [, view = "contacts", id] = (location.hash || "#/contacts").split("/");
+  const [, view = "contacts", id, extra] = (location.hash || "#/contacts").split("/");
   const v = VIEWS.find((x) => x.id === view) ?? VIEWS[0];
-  if (v !== current) { current = v; shell(); v.mount($("#view"), $("#dr-body")); }
-  if (id) openDrawer(() => v.open(id));
+  if (v !== current) { current?.close?.(); current = v; shell(); v.mount($("#view"), $("#dr-body")); }
+  if (id === "new" && v.openNew) openDrawer(() => v.openNew(extra));
+  else if (id) openDrawer(() => v.open(id));
   else closeDrawer(false);
 }
 
@@ -93,6 +96,8 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#draw
 window.addEventListener("hashchange", route);
 bindContactEvents($("#app"));
 bindDrawerEvents($("#dr-body"));
+bindTodoEvents($("#app"));
+bindTodoDrawerEvents($("#dr-body"));
 
 // Erreur renvoyée par Supabase dans l'adresse (lien expiré, déjà utilisé…).
 const urlErr = new URLSearchParams(location.hash.slice(1));
