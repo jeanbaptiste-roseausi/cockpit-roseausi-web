@@ -108,7 +108,6 @@ function renderDrawer() {
   const p = o.p;
   if (!p) { drawerHost.innerHTML = o.error ? `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(o.error)}</span></div>` : `<p class="empty">Chargement du projet…</p>`; return; }
   const b = p.budget, full = !p.partial;
-  const nb = (x, u) => x == null ? `<em>absent</em>` : `${String(Math.round(x * 10) / 10).replace(".", ",")} ${u}`;
   drawerHost.innerHTML = `
     <div class="pj-head"><div style="flex:1;min-width:0"><div class="chips" style="margin-bottom:8px">${meteoChip(p.meteo)}${etatChip(p.etat, true)}${p.regulier ? `<span class="chip">Récurrent</span>` : ""}${sleepChip(p)}</div>
       <h1>${esc(p.nom)}</h1>${p.nomComplet && p.nomComplet !== p.nom ? `<div class="sub">${esc(p.nomComplet)}</div>` : ""}</div>
@@ -120,7 +119,7 @@ function renderDrawer() {
     ${o.error ? `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(o.error)}</span></div>` : ""}
     ${p.motifMeteo ? `<div class="banner ${[...(p.meteo || " ")][0] === "🔴" ? "" : "info"}">${ic("alert", "ic-sm")}<span>${esc(p.motifMeteo)}</span></div>` : ""}
     <div class="pkpis">
-      <div class="pk"><span>Budget consommé</span><b class="${b.niveau === "crit" ? "neg" : b.niveau === "warn" ? "warn" : ""}">${b.consommePct != null ? pct(b.consommePct) : "–"}</b><small>${b.consommePct != null ? `${nb(b.heuresConsommees, "h")} sur ${nb(b.heuresVendues, "h")} vendues` : "absent dans Notion"}</small>${gauge(b)}</div>
+      <div class="pk"><span>Budget consommé</span><b class="${b.niveau === "crit" ? "neg" : b.niveau === "warn" ? "warn" : ""}">${b.consommePct != null ? pct(b.consommePct) : "–"}</b><small>${budgetHint(b)}</small>${gauge(b)}</div>
       <div class="pk"><span>Retards des tiers</span><b>${p.retardsTiers ?? "–"}</b><small>${p.retardsTiers == null ? "absent dans Notion" : "page Contexte"}</small></div>
       <div class="pk"><span>Tâches ouvertes</span><b>${p.taches.ouvertes}</b><small>${p.taches.retard ? `${p.taches.retard} en retard` : "aucune en retard"}</small></div>
       <div class="pk"><span>Dernier échange</span><b>${p.dernierEchange ? esc(fd(p.dernierEchange.date)) : "–"}</b><small>${p.dernierEchange ? ago(p.dernierEchange.date) : "aucun au journal"}</small></div>
@@ -135,15 +134,74 @@ function renderDrawer() {
         ${!full ? `<p class="empty">Chargement…</p>` : p.echanges.length ? `<div class="list">${p.echanges.map((e) => `<a class="row" href="${esc(e.url)}" target="_blank" rel="noopener"><div class="rm"><div class="rt">${esc(e.titre)}</div><div class="rs">${esc(fd(e.date))}${e.format ? " · " + esc(e.format) : ""}</div></div>${ic("ext", "ic-sm")}</a>`).join("")}</div>` : `<p class="empty">Aucun échange au journal.</p>`}</section>
     </div>
     ${full && p.interlocuteurs.length ? `<section class="sec"><h2>Interlocuteurs</h2><div class="chips">${p.interlocuteurs.map((c) => `<a class="chip" href="#/contacts/${c.id}">${esc(c.nom)}</a>`).join("")}</div><p class="small muted" style="margin-top:8px">Contacts cités dans les derniers échanges et les tâches ouvertes.</p></section>` : ""}
-    <section class="sec"><h2>Budget</h2><dl class="kv">
-      <dt>Heures</dt><dd>${nb(b.heuresConsommees, "h")} consommées, ${nb(b.heuresVendues, "h")} vendues</dd>
-      <dt>Jours</dt><dd>${nb(b.joursVendus, "j")} vendus, plafond ${nb(b.plafondJours, "j")}</dd>
-      <dt>Ce mois</dt><dd>${nb(b.joursDuMois, "j")} passés, budget mensuel ${nb(b.budgetMensuelJours, "j")}</dd>
-      <dt>Hors périmètre</dt><dd>${p.horsPerimetre ?? "<em>absent</em>"}</dd>
-      <dt>Dernière activité</dt><dd>${p.derniereActivite ? esc(fd(p.derniereActivite)) + " <span class=\"muted small\">(journal ou mail, propriété Notion)</span>" : "<em>absente</em>"}</dd>
-    </dl></section>
+    ${budgetSection(p)}
+    ${infoSection(p, full)}
     <p class="small muted">Lu dans Notion${o.fetchedAt ? ` à ${new Date(o.fetchedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : ""}. Fiche modifiée le ${esc(new Date(p.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}${p.contexte?.modifie ? ` ; page Contexte modifiée le ${esc(new Date(p.contexte.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}` : ""}.</p>`;
 }
+
+// ---------------- Budget et informations ----------------
+
+const n1 = (x) => String(Math.round(x * 10) / 10).replace(".", ",");
+const NR = (labels) => labels.length ? `<p class="nr">Non renseigné dans Notion : ${labels.join(", ")}.</p>` : "";
+
+/** Ce qui fait le Consommé (%) : le ratio retenu par Budget missions (le plus élevé des deux). */
+function budgetHint(b) {
+  if (b.consommePct == null) return "non renseigné dans Notion";
+  const h = b.ratioHeures, m = b.ratioMois;
+  if (m != null && (h == null || m >= h)) return `${n1(b.joursDuMois)} j ce mois sur ${n1(b.budgetMensuelJours)} j de budget mensuel`;
+  if (h != null) return `${n1(b.heuresConsommees)} h sur ${n1(b.heuresVendues)} h vendues`;
+  return "écrit par Budget missions";
+}
+
+function budgetSection(p) {
+  const b = p.budget;
+  const rows = [], missing = [];
+  const line = (lab, val) => rows.push(`<dt>${lab}</dt><dd>${val}</dd>`);
+  if (b.consommePct != null) {
+    const which = b.ratioMois != null && (b.ratioHeures == null || b.ratioMois >= b.ratioHeures) ? "mois" : b.ratioHeures != null ? "heures" : null;
+    line("Consommé", `<b class="${b.niveau === "crit" ? "neg" : b.niveau === "warn" ? "warn" : ""}">${pct(b.consommePct)}</b>${gauge(b)}<span class="small muted">Le plus élevé entre heures consommées ÷ heures vendues et jours du mois ÷ budget mensuel, écrit chaque lundi par Budget missions${which ? ` ; ici, ${which === "mois" ? "le budget mensuel" : "les heures"}` : ""}. Orange à 80 %, rouge à 100 %.</span>`);
+  } else missing.push("consommé (%)");
+  if (b.heuresConsommees != null) line("Heures", `${n1(b.heuresConsommees)} h consommées${b.heuresVendues != null ? ` sur ${n1(b.heuresVendues)} h vendues (${pct(b.ratioHeures)})` : ""}`);
+  else missing.push("heures consommées");
+  if (b.heuresVendues == null) missing.push("heures vendues");
+  if (b.budgetMensuelJours != null) line("Mois en cours", `${b.joursDuMois != null ? `${n1(b.joursDuMois)} j passés sur ` : ""}${n1(b.budgetMensuelJours)} j de budget mensuel${b.ratioMois != null ? ` (${pct(b.ratioMois)})` : ""}`);
+  else {
+    missing.push("budget mensuel");
+    if (b.joursDuMois != null) line("Mois en cours", `${n1(b.joursDuMois)} j passés`);
+  }
+  if (b.joursDuMois == null) missing.push("jours du mois");
+  if (b.joursVendus != null) line("Jours vendus", `${n1(b.joursVendus)} j`); else missing.push("jours vendus");
+  if (b.plafondJours != null) line("Plafond", `${n1(b.plafondJours)} j`); else missing.push("plafond");
+  if (b.palierAlerte) line("Palier déjà alerté", esc(b.palierAlerte)); else missing.push("palier budget alerté");
+  return `<section class="sec"><h2>Budget</h2>${rows.length ? `<dl class="kv">${rows.join("")}</dl>` : ""}${NR(missing)}</section>`;
+}
+
+function infoSection(p, full) {
+  const rows = [], missing = [];
+  const line = (lab, val) => rows.push(`<dt>${lab}</dt><dd>${val}</dd>`);
+  const d = (x) => esc(fd(x));
+  if (p.dateDebut) line("Début réel", d(p.dateDebut)); else missing.push("date de début réelle");
+  if (p.datePrevisionnelle) line("Date prévisionnelle", d(p.datePrevisionnelle)); else missing.push("date prévisionnelle");
+  line("Responsable", p.responsables?.length ? p.responsables.map(esc).join(", ") : `Jean-Baptiste <span class="small muted">(champ vide, valeur par défaut de la base)</span>`);
+  if (p.horsPerimetre != null) line("Hors périmètre ouverts", String(p.horsPerimetre)); else missing.push("hors périmètre ouverts");
+  if (p.derniereActivite) line("Dernière activité", `${d(p.derniereActivite)} <span class="small muted">(journal ou mail, écrite chaque nuit)</span>`); else missing.push("dernière activité");
+  line("Météo hebdo", p.meteoHebdo ? "Oui, suivi par l'automate du vendredi" : "Non");
+  if (p.projetToggl) line("Projet Toggl", esc(p.projetToggl)); else missing.push("projet Toggl (nom identique)");
+  const opp = full ? p.opportunitesListe || [] : [];
+  // Liens de la relation qui ne mènent pas à une page de la base visée (page déplacée, corbeille).
+  const hors = (n, k, base) => full && n > k ? `<p class="nr">${n - k} lien${n - k > 1 ? "s" : ""} de la relation mène${n - k > 1 ? "nt" : ""} à une page hors de la base ${base} (déplacée ou supprimée), non affiché${n - k > 1 ? "s" : ""}.</p>` : "";
+  if (full && opp.length) line("Opportunités", `<div class="list">${opp.map((o) => `<a class="row" href="${esc(o.url)}" target="_blank" rel="noopener"><div class="rm"><div class="rt">${esc(o.nom)}</div><div class="rs">${[o.statut, o.caReel != null ? `CA réel ${eur(o.caReel)}` : o.caEstime != null ? `CA estimé ${eur(o.caEstime)}` : null].filter(Boolean).map(esc).join(" · ")}</div></div>${ic("ext", "ic-sm")}</a>`).join("")}</div>${hors(p.opportunites?.n || 0, opp.length, "Opportunités")}`);
+  else if (full && p.opportunites?.n) line("Opportunités", hors(p.opportunites.n, 0, "Opportunités"));
+  else if (!p.opportunites?.n) missing.push("opportunités");
+  else if (!full) line("Opportunités", `${p.opportunites.n} liée${p.opportunites.n > 1 ? "s" : ""}`);
+  const th = full ? p.themesListe || [] : [];
+  if (full && th.length) line("Initiatives", `<div class="chips">${th.map((t) => `<a class="chip ${t.etat === "Terminé" ? "st-termine" : ""}" href="${esc(t.url)}" target="_blank" rel="noopener" title="${esc(t.etat || "")}">${esc(t.nom)}</a>`).join("")}</div>${hors(p.themes?.n || 0, th.length, "Thèmes")}`);
+  else if (full && p.themes?.n) line("Initiatives", hors(p.themes.n, 0, "Thèmes"));
+  else if (!p.themes?.n) missing.push("thèmes");
+  else if (!full) line("Initiatives", `${p.themes.n} liée${p.themes.n > 1 ? "s" : ""}`);
+  return `<section class="sec"><h2>Informations</h2><dl class="kv">${rows.join("")}</dl>${NR(missing)}</section>`;
+}
+const eur = (x) => `${Math.round(x).toLocaleString("fr-FR")} €`;
 
 const taskRow = (t) => `<a class="row" href="#/todo/${t.id}"><div class="rm"><div class="rt">${esc(t.nom)}</div><div class="ameta">${t.prio === "P1" ? chip("P1", "red") : t.prio ? chip(t.prio) : ""}${etatChip(t.etat)}</div></div><div class="rr">${due(t.echeance)}</div></a>`;
 
