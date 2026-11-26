@@ -92,9 +92,9 @@ export const agentApi = {
   envoyer: (type, id, typeMessage, texte) => call("agent", `/${type}/${id}`, { method: "POST", body: { type: typeMessage, texte } }),
   annuler: (n) => call("agent", `/action/${n}/annuler`, { method: "POST", body: {} }),
   appliquer: (n) => call("agent", `/action/${n}/appliquer`, { method: "POST", body: {} }),
-  // Lot 3 bis : agent global (un fil pour tous les écrans) et gestes groupés.
-  filGlobal: () => call("agent", "/ecran"),
-  envoyerGlobal: (typeMessage, texte, ecran) => call("agent", "/ecran", { method: "POST", body: { type: typeMessage, texte, ecran } }),
+  // Agent d'écran (lot 3 bis ; un fil par écran depuis le 26/11/2026, soir) et gestes groupés.
+  filEcran: (vue) => call("agent", `/ecran/${vue}`),
+  envoyerEcran: (vue, typeMessage, texte, ecran) => call("agent", `/ecran/${vue}`, { method: "POST", body: { type: typeMessage, texte, ecran } }),
   groupe: (n, geste, body = {}) => call("agent", `/groupe/${n}/${geste}`, { method: "POST", body }),
 };
 

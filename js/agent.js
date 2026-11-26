@@ -1,9 +1,12 @@
 // Panneau Agent (lots 3 et 3 bis).
 //
 // Lot 3 : fil Agent des fiches Contact et Tâche, dans le panneau de droite de la fiche, sous Mes notes.
-// Lot 3 bis : agent global, disponible sur chaque écran (Ma journée, Vue d'ensemble, Pistes, Contacts, Réseau,
-// Journal, Projets, Actions) et sur les fiches piste, projet et journal. Un seul fil global ; chaque message part
-// avec la description de l'écran ouvert (ce qu'il affiche, filtres compris), que la fonction relit dans le miroir.
+// Lot 3 bis : agent d'écran, disponible sur chaque écran (Ma journée, Vue d'ensemble, Pistes, Contacts, Réseau,
+// Journal, Projets, Actions). La fiche projet a son agent de fiche (27/11/2026) : il lit les échanges du projet et
+// sa page Contexte, et tient les champs Agent.
+// Fils séparés (26/11/2026, soir) : chaque fiche (contact, tâche, projet, piste, échange du Journal) et chaque écran
+// a son propre fil, comme dans l'artefact (une session par fiche et par page). Un message d'écran part avec la
+// description de l'écran ouvert (ce qu'il affiche, filtres compris), que la fonction relit dans le miroir.
 // Gestes groupés : l'agent propose une liste de changements, fiche par fiche ; rien n'est écrit avant que
 // Jean-Baptiste coche et clique Appliquer. Après application, « Tout annuler » et « Annuler » par ligne.
 //
@@ -22,11 +25,17 @@ const TYPES = {
 const SUGG = {
   tache: ["Où en est cette tâche ?", "Replanifie-la à vendredi", "Qu'est-ce qui bloque et que faut-il faire ensuite ?"],
   contact: ["Résume notre relation et ce qui est en cours", "Quelles sont mes prochaines actions avec ce contact ?", "Note une mise en lien"],
+  projet: ["Où en est ce projet ?", "Quels engagements des tiers sont en retard ?", "Quelles sont mes prochaines actions sur ce projet ?"],
+  piste: ["Où en est cette piste ?", "Quelle est la prochaine action à faire ?", "Qui sont les bons interlocuteurs ?"],
+  echange: ["Résume cet échange en cinq lignes", "Quelles actions en découlent pour moi ?", "Qu'est-ce qui a été décidé ?"],
   journee: ["Qu'est-ce qui est le plus urgent aujourd'hui ?", "Décale à lundi mes tâches de vendredi"],
   ensemble: ["Résume la semaine en trois points", "Quels projets demandent mon attention ?"],
   pistes: ["Quelles pistes actives n'ont aucune action ?", "Crée une relance pour chaque piste sans action"],
+  contacts: ["Qui dois-je recontacter ce mois-ci ?", "Quels contacts n'ont pas de prochaine action ?"],
+  reseau: ["Qui dois-je recontacter ce mois-ci ?", "Quelles mises en lien sont en attente ?"],
+  journal: ["Quels échanges n'ont pas encore de suites ?", "Résume les échanges de la semaine"],
+  projets: ["Quels projets sont en difficulté et pourquoi ?", "Quels jalons arrivent dans les quinze jours ?"],
   todo: ["Qu'est-ce qui est en retard ?", "Décale à lundi mes tâches de vendredi"],
-  fiche: ["Résume cette fiche", "Que faut-il faire ensuite ?"],
   autre: ["Résume ce que montre cet écran", "Qu'est-ce qui demande mon attention ici ?"],
 };
 const BASE = { todo: "todo", contacts: "contacts", pistes: "pistes", projets: "projets", journal: "journal" };
@@ -46,20 +55,23 @@ let ouvertTel = false;
 const ouvert = () => (tel() ? ouvertTel : !!PREF.ouvert);
 
 // ---------------------------------------------------------------------------------------------
-// État par fil : clé = identifiant de la fiche (contact, tâche) ou « global ».
+// État par fil : clé = identifiant de la fiche, ou « ecran:<vue> » pour le fil d'un écran.
 const F = new Map();
 const st = (k) => F.get(k) ?? F.set(k, { fil: null, info: null, busy: false, err: "", draft: "", type: "question", prog: "" }).get(k);
 const DECOCHE = new Map(); // geste groupé → lignes décochées
 
 const drawerOuvert = () => document.body.classList.contains("dr-open") && $("#drawer")?.classList.contains("on");
 
-/** Fil à afficher : la fiche Contact ou Tâche ouverte, sinon le fil global (avec la fiche piste, projet ou journal ouverte). */
+const TYPE_FICHE = { contacts: "contact", todo: "tache", projets: "projet", pistes: "piste", journal: "echange" };
+const ECRANS = ["journee", "ensemble", "pistes", "contacts", "reseau", "journal", "projets", "todo"];
+
+/** Fil à afficher : celui de la fiche ouverte (contact, tâche, projet, piste, échange), sinon celui de l'écran. */
 function cible() {
-  const [, view = "journee", id] = (location.hash || "").split("/");
-  const fiche = drawerOuvert() && id && id !== "new" && ID.test(id) && BASE[view] ? { base: BASE[view], id } : null;
-  if (fiche && view === "contacts") return { type: "contact", id, key: id, fiche };
-  if (fiche && view === "todo") return { type: "tache", id, key: id, fiche };
-  return { type: "ecran", key: "global", view, fiche };
+  const [, v = "journee", id] = (location.hash || "").split("/");
+  const fiche = drawerOuvert() && id && id !== "new" && ID.test(id) && BASE[v] ? { base: BASE[v], id } : null;
+  if (fiche && TYPE_FICHE[v]) return { type: TYPE_FICHE[v], id, key: id.replace(/-/g, "").toLowerCase(), fiche };
+  const view = ECRANS.includes(v) ? v : "journee";
+  return { type: "ecran", key: `ecran:${view}`, view, fiche: null };
 }
 
 /** Où va le fil : dans le panneau de la fiche (ancré, fiche ouverte), dans le panneau #agp, ou nulle part. */
@@ -71,7 +83,7 @@ function placement(c) {
 const sideHost = () => { const el = document.querySelector("#dr-side [data-agent-host]"); return el?.isConnected ? el : null; };
 
 // ---------------------------------------------------------------------------------------------
-// Description de l'écran ouvert, envoyée avec chaque message du fil global. Le serveur relit les fiches dans
+// Description de l'écran ouvert, envoyée avec chaque message du fil de l'écran. Le serveur relit les fiches dans
 // le miroir : la page ne donne que des identifiants, les filtres affichés et le titre.
 function ecranCourant(c) {
   const titre = ($(".top h1")?.textContent || c.view || "").trim();
@@ -133,7 +145,7 @@ function texte(t) {
 }
 
 const val = (v) => v == null || v === "" || (Array.isArray(v) && !v.length) ? "vide" : Array.isArray(v) ? `${v.length} lien${v.length > 1 ? "s" : ""}` : /^\d{4}-\d\d-\d\d$/.test(String(v)) ? fd(String(v)) : /^\d{4}-\d\d-\d\dT/.test(String(v)) ? fd(String(v).slice(0, 10)) : String(v).length > 80 ? String(v).slice(0, 80) + "…" : String(v);
-const lien = (a) => a.cible_id ? `<a href="#/${a.cible_base === "todo" ? "todo" : "contacts"}/${esc(a.cible_id)}">${esc(a.cible_nom || "la fiche")}</a>` : esc(a.cible_nom || "");
+const lien = (a) => a.cible_id ? `<a href="#/${["todo", "projets", "pistes"].includes(a.cible_base) ? a.cible_base : "contacts"}/${esc(a.cible_id)}">${esc(a.cible_nom || "la fiche")}</a>` : esc(a.cible_nom || "");
 const diff = (a) => `<span class="ag-diff"><del>${esc(val(a.ancienne))}</del> ${ic("arrow", "ic-sm")} <ins>${esc(val(a.nouvelle))}</ins></span>`;
 
 function actionHTML(a) {
@@ -143,6 +155,7 @@ function actionHTML(a) {
     quoi = `<b>${esc(a.propriete)}</b> de ${lien(a)}${rel ? ` : liens modifiés (${val(a.ancienne)} → ${val(a.nouvelle)})` : diff(a)}`;
   } else if (a.genre === "creer_tache") quoi = `Tâche créée : ${lien(a)}`;
   else if (a.genre === "creer_contact") quoi = `Contact créé : ${lien(a)}`;
+  else if (a.genre === "ajouter_contexte") quoi = `Ajouté à la ${esc(a.propriete || "page Contexte")} de ${lien(a)} : <span class="ag-diff"><ins>${esc(val(a.nouvelle))}</ins></span>`;
   else if (a.genre === "relier") quoi = `Mise en lien : ${esc(a.nouvelle?.recommandeurNom || "un contact")} a recommandé ${lien(a)}`;
   else quoi = `Proposé : <b>${esc(a.propriete)}</b> de ${lien(a)}${diff(a)}`;
   const btn = a.statut === "faite" && ["modifier", "creer_tache", "creer_contact", "relier"].includes(a.genre)
@@ -203,7 +216,7 @@ function messageHTML(e, s) {
   return `<div class="ag-m bot ${e.statut === "erreur" ? "err" : ""} ${grps ? "wide" : ""}">${texte(e.texte)}${acts}${grps}${cost}</div>`;
 }
 
-const suggestions = (c) => c.type === "tache" || c.type === "contact" ? SUGG[c.type] : c.fiche ? SUGG.fiche : SUGG[c.view] || SUGG.autre;
+const suggestions = (c) => c.type !== "ecran" ? SUGG[c.type] || SUGG.autre : SUGG[c.view] || SUGG.autre;
 
 function filHTML(c, s, ou) {
   const i = s.info;
@@ -215,7 +228,13 @@ function filHTML(c, s, ou) {
   const sansCle = i && !i.cle ? `<div class="banner info ag-cle">${ic("info", "ic-sm")}<span>L'agent attend sa clé API Anthropic. Tu peux déjà écrire : tes messages sont gardés et les demandes de livrable sont enregistrées.</span></div>` : "";
   const plafond = i && i.cle && i.cumul.cout_usd >= i.plafondUsd ? `<div class="banner ag-cle">${ic("alert", "ic-sm")}<span>Plafond du mois atteint : l'agent ne répond plus jusqu'au mois prochain.</span></div>` : "";
   const intro = c.type === "ecran"
-    ? `<p class="ag-intro">Un agent pour tout le cockpit. Il voit l'écran ouvert, avec ce qu'il affiche et ses filtres, et répond aux questions qui traversent plusieurs fiches. Pour un changement sur plusieurs fiches, il te montre d'abord la liste complète, fiche par fiche, et rien n'est écrit avant que tu cliques Appliquer. Il ne touche jamais à Mes notes ni aux statuts, et ne supprime rien.</p>`
+    ? `<p class="ag-intro">L'agent de cet écran, avec son propre fil. Il voit ce que l'écran affiche, avec ses filtres, et répond aux questions qui traversent plusieurs fiches. Pour un changement sur plusieurs fiches, il te montre d'abord la liste complète, fiche par fiche, et rien n'est écrit avant que tu cliques Appliquer. Il ne touche jamais à Mes notes ni aux statuts, et ne supprime rien.</p>`
+    : c.type === "piste"
+    ? `<p class="ag-intro">L'agent de cette piste, avec son propre fil. Il lit la piste, ses contacts, ses tâches et ses échanges du Journal. Il range tes remarques (Prio, Taille, date de signature, tâche reliée à la piste, contact, mise en lien) et te montre chaque modification avec un bouton Annuler. L'étape et l'issue de la piste, il te les propose. Il ne touche jamais à Mes notes.</p>`
+    : c.type === "echange"
+    ? `<p class="ag-intro">L'agent de cet échange, avec son propre fil. Il lit l'échange et son compte rendu, ses contacts, sa piste et son projet. Il peut créer les actions qui en découlent (reliées à l'échange), une par une ou en un geste groupé que tu appliques. Il ne touche jamais à Mes notes ni aux statuts, et ne supprime rien.</p>`
+    : c.type === "projet"
+    ? `<p class="ag-intro">L'agent du projet lit ses échanges du Journal de bord et sa page Contexte. Il tient les champs marqués Agent (Météo, Motif météo, Retards des tiers, Synthèse agent) et peut ajouter un point à la page Contexte. En Question, il te propose la mise à jour ; réponds oui pour qu'il la fasse. Chaque modification s'affiche ici avec un bouton Annuler et est notée au Journal de l'agent du projet. Il ne touche jamais à Mes notes ni à l'état du projet.</p>`
     : `<p class="ag-intro">Un seul interlocuteur pour cette fiche. Il répond à tes questions et range tes remarques (champs, replanification, tâche, contact, mise en lien). Chaque modification s'affiche ici avec l'ancienne et la nouvelle valeur, et un bouton Annuler. Il ne touche jamais à Mes notes ni aux statuts, il te les propose.</p>`;
   const list = s.fil === null ? `<p class="small muted">Chargement du fil…</p>`
     : s.fil === "erreur" ? `<div class="banner">${ic("alert", "ic-sm")}<span>Fil indisponible pour l'instant. <button class="lnk" data-ag-relire="1">Réessayer</button></span></div>`
@@ -266,7 +285,7 @@ function paint(keepFocus = false) {
   const ou = placement(c);
   const side = sideHost();
   const agp = $("#agp");
-  // En-tête du panneau de la fiche : agent de la fiche (contact, tâche) ou agent global sur la fiche.
+  // En-tête du panneau de la fiche : agent de la fiche (toutes les fiches ont leur fil depuis le 26/11, soir).
   const h = document.querySelector("#dr-side #ag-h");
   if (h) h.textContent = c.type === "ecran" ? "Agent" : "Agent de la fiche";
   if (side) {
@@ -304,7 +323,7 @@ async function charger(c, force = false) {
   if (s.fil !== null && s.fil !== "erreur" && !force) return;
   if (s.charge) return;
   s.charge = true;
-  try { const r = c.type === "ecran" ? await agentApi.filGlobal() : await agentApi.fil(c.type, c.id); s.fil = r.fil; s.info = r; s.err = ""; }
+  try { const r = c.type === "ecran" ? await agentApi.filEcran(c.view) : await agentApi.fil(c.type, c.id); s.fil = r.fil; s.info = r; s.err = ""; }
   catch (e) { if (s.fil === null) s.fil = "erreur"; s.err = e.status ? e.message : ""; }
   s.charge = false;
   if (cible().key === c.key) paint();
@@ -326,7 +345,7 @@ async function envoyer() {
   if (!t || s.busy) return;
   s.busy = true; s.err = ""; s.draft = t; paint(true);
   try {
-    const r = c.type === "ecran" ? await agentApi.envoyerGlobal(s.type, t, ecranCourant(c)) : await agentApi.envoyer(c.type, c.id, s.type, t);
+    const r = c.type === "ecran" ? await agentApi.envoyerEcran(c.view, s.type, t, ecranCourant(c)) : await agentApi.envoyer(c.type, c.id, s.type, t);
     s.fil = r.fil; s.info = r; s.draft = "";
     if (r.ecrit) ficheModifiee();
   } catch (e) { s.err = e.message || "L'agent n'a pas pu répondre."; }
