@@ -43,6 +43,8 @@ export const contactsApi = {
   schema: () => call("contacts", "/schema"),
   get: (id) => call("contacts", `/${id}`),
   aCreer: () => call("contacts", "/a-creer"),
+  doublons: (nom) => call("contacts", `/doublons?nom=${encodeURIComponent(nom)}`),
+  create: (values, { piste = null, confirmerDoublon = false } = {}) => call("contacts", "", { method: "POST", body: { values, ...(piste ? { piste } : {}), confirmerDoublon } }),
   update: (id, changes, avant) => call("contacts", `/${id}`, { method: "PATCH", body: { changes, ...(avant ? { avant } : {}) } }),
 };
 
@@ -66,7 +68,7 @@ export const pistesApi = {
   ofContact: (id) => call("pistes", `?contact=${encodeURIComponent(id)}`),
   ofProjet: (id) => call("pistes", `?projet=${encodeURIComponent(id)}`),
   get: (id) => call("pistes", `/${id}`),
-  update: (id, changes) => call("pistes", `/${id}`, { method: "PATCH", body: { changes } }),
+  update: (id, changes, avant) => call("pistes", `/${id}`, { method: "PATCH", body: { changes, ...(avant ? { avant } : {}) } }),
 };
 
 export const reseauApi = {

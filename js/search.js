@@ -40,7 +40,7 @@ export function mountSearch(el) {
     const C = d.contacts.filter((c) => hit([c.nom, c.position, ...(c.typeOrg || [])].join(" "))).slice(0, 6);
     const T = d.taches.filter((t) => hit([t.nom, t.typeAction].join(" "))).slice(0, 6);
     const P = d.projets.filter((p) => hit(p.nom)).slice(0, 5);
-    const PI = d.pistes.filter((p) => hit([p.nom, p.prochaineAction].join(" "))).slice(0, 5);
+    const PI = d.pistes.filter((p) => hit([p.nom, p.prochaine?.nom, p.noteLibre].join(" "))).slice(0, 5);
     const grp = (lab, items, fn) => items.length ? `<div class="sg">${lab}</div>${items.map(fn).join("")}` : "";
     const html = grp("Contacts", C, (c) => `<a href="#/contacts/${c.id}">${av(c)}<span>${esc(c.nom)}${c.position ? ` <span class="small muted">· ${esc(c.position)}</span>` : ""}</span></a>`)
       + grp("Tâches ouvertes", T, (t) => `<a href="#/todo/${t.id}"><span class="ifmt sm">${ic("todo", "ic-sm")}</span><span>${esc(t.nom)} <span class="small muted">· ${esc(etatLabel(t.etat))}</span></span></a>`)

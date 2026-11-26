@@ -2,6 +2,7 @@
 // changement d'état en un clic, création de tâche.
 import { todoApi } from "./api.js";
 import { contactIndex } from "./contacts.js";
+import { og, ogLegend } from "./origines.js";
 import { $, esc, ic, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, etatLabel, isDone, ficheTop, renderSide, sideHTML, ficheTabs, taSpan, syncOf, syncSpan, staleBanner, setNoteSaver , swapHTML } from "./ui.js";
 
 const PROSPECTION_PROJECT = "3e6a08ac559780ccb74ce21b2d7e2bbb"; // projet « Prospection » (filtre du POC)
@@ -222,7 +223,7 @@ function renderDrawer() {
   ficheTop({ kind: o.isNew ? "Nouvelle tâche" : "Tâche", url: t?.url || null, side: !o.isNew });
   if (o.isNew) { drawerHost.innerHTML = newForm(o); return; }
   renderSide("todo", sideHTML({
-    notes: [{ label: "Mes notes", text: t?.mesNotes, prop: "Mes notes", editable: !!(t && !t.partial && o.values && t.textesModifiables?.["Mes notes"] && S.schema?.editable?.["Mes notes"]), locked: t?.textesModifiables?.["Mes notes"] === false, saved: o.savedNote === "Mes notes" }],
+    notes: [{ label: "Mes notes", text: t?.mesNotes, prop: "Mes notes", editable: !!(t && !t.partial && o.values && t.textesModifiables?.["Mes notes"] && S.schema?.editable?.["Mes notes"]), locked: t?.textesModifiables?.["Mes notes"] === false, saved: o.savedNote === "Mes notes", og: og("todo", "Mes notes") }],
     notesMissing: !t || t.partial ? "Chargement des notes…" : "",
     ordre: t && !t.partial ? { etat: t.ordreAgent, mission: t.ordreMission } : null,
   }));
@@ -258,22 +259,22 @@ function renderDrawer() {
 
 function synthese(o, nameOfProj) {
   const t = o.task, d = isDone(t), busy = o.saving.has("Échéance");
-  return `<div class="sfacts">
-      <div><span>État</span><b>${esc(etatLabel(t.etat) || "Non renseigné")}</b>${t.prio ? `<small>${esc(t.prio)}</small>` : ""}</div>
-      <div><span>Échéance</span><b>${t.echeance ? esc(fd(t.echeance)) : "Aucune"}</b>${t.echeance && !d ? `<small>${due(t.echeance)}</small>` : ""}
+  return `${ogLegend()}<div class="sfacts">
+      <div><span>État${og("todo", "État")}</span><b>${esc(etatLabel(t.etat) || "Non renseigné")}</b>${t.prio ? `<small>${esc(t.prio)}</small>` : ""}</div>
+      <div><span>Échéance${og("todo", "Échéance")}</span><b>${t.echeance ? esc(fd(t.echeance)) : "Aucune"}</b>${t.echeance && !d ? `<small>${due(t.echeance)}</small>` : ""}
         ${o.values ? `<label class="echq"><span class="sr">Changer l'échéance</span><input type="date" data-tprop="Échéance" value="${esc(String(o.values["Échéance"] || "").slice(0, 10))}" ${busy ? "disabled" : ""}></label>` : ""}</div>
-      <div><span>Bloc</span><b>${t.bloc ? esc(t.bloc) : t.blocDeduit ? `${esc(t.blocDeduit)} <span class="small muted">(déduit)</span>` : "Non renseigné"}</b>${!t.bloc && t.blocDeduit ? `<small>Déduit du type d'action et de l'état, rien n'est écrit dans Notion</small>` : ""}</div>
-      <div><span>Durée estimée</span><b>${t.dureeMin != null ? `${t.dureeMin} min` : t.partial ? "…" : "Non renseignée"}</b>${t.typeAction ? `<small>${taSpan(t.typeAction)}</small>` : ""}</div>
-      ${t.projets.map((p) => `<a class="sfact-link" href="#/projets/${p}"><span>Projet</span><b>${esc(nameOfProj(p))}</b><small>Ouvrir le projet ›</small></a>`).join("")}
-      ${(t.pistesListe || []).map((p) => `<a class="sfact-link" href="#/pistes/${p.id}"><span>Piste</span><b>${esc(p.nom)}</b><small>${esc([p.etape, p.issue].filter(Boolean).join(" · ")) || "Ouvrir la piste"} ›</small></a>`).join("")}
+      <div><span>Bloc${og("todo", !t.bloc && t.blocDeduit ? "blocDeduit" : "Bloc")}</span><b>${t.bloc ? esc(t.bloc) : t.blocDeduit ? `${esc(t.blocDeduit)} <span class="small muted">(déduit)</span>` : "Non renseigné"}</b>${!t.bloc && t.blocDeduit ? `<small>Déduit du type d'action et de l'état, rien n'est écrit dans Notion</small>` : ""}</div>
+      <div><span>Durée estimée${og("todo", "Durée estimée (min)")}</span><b>${t.dureeMin != null ? `${t.dureeMin} min` : t.partial ? "…" : "Non renseignée"}</b>${t.typeAction ? `<small>${taSpan(t.typeAction)}</small>` : ""}</div>
+      ${t.projets.map((p) => `<a class="sfact-link" href="#/projets/${p}"><span>Projet${og("todo", "Projets")}</span><b>${esc(nameOfProj(p))}</b><small>Ouvrir le projet ›</small></a>`).join("")}
+      ${(t.pistesListe || []).map((p) => `<a class="sfact-link" href="#/pistes/${p.id}"><span>Piste${og("todo", "Pistes/Opportunités")}</span><b>${esc(p.nom)}</b><small>${esc([p.etape, p.issue].filter(Boolean).join(" · ")) || "Ouvrir la piste"} ›</small></a>`).join("")}
       ${t.pistes && !t.pistesListe ? `<div><span>Piste</span><b>${t.pistes} piste${t.pistes > 1 ? "s" : ""} liée${t.pistes > 1 ? "s" : ""}</b><small>…</small></div>` : ""}
     </div>
     ${o.values ? iniSelect(o, "ts-th") : ""}
     ${!t.projets.length && !t.pistes ? `<div class="banner dashed">${ic("alert", "ic-sm")}<span>Tâche rattachée à aucun projet ni piste.</span><button class="btn sm" data-tsec="liens">Rattacher</button></div>` : ""}
-    ${t.recap ? `<h3 class="sh">Récap</h3><p class="notes">${esc(t.recap)}</p>` : ""}
-    ${t.brouillon || t.lienSource ? `<div class="dact" style="margin:12px 0">${t.brouillon ? `<a class="btn sm pri" href="${esc(t.brouillon)}" target="_blank" rel="noopener">${ic("mail", "ic-sm")}Brouillon Gmail</a>` : ""}${t.lienSource ? `<a class="btn sm" href="${esc(t.lienSource)}" target="_blank" rel="noopener">${ic("ext", "ic-sm")}Source</a>` : ""}</div>` : ""}
-    ${t.syntheseAgent ? `<h3 class="sh">Synthèse agent</h3><p class="notes">${esc(t.syntheseAgent)}</p>` : ""}
-    ${t.modifie ? `<p class="small muted" style="margin-top:14px">Modifiée dans Notion le ${esc(new Date(t.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}. Le récap se modifie dans l'onglet Modifier, Mes notes dans le panneau de droite.</p>` : ""}`;
+    ${t.recap ? `<h3 class="sh">Récap${og("todo", "Récap")}</h3><p class="notes">${esc(t.recap)}</p>` : ""}
+    ${t.brouillon || t.lienSource ? `<div class="dact" style="margin:12px 0">${t.brouillon ? `<a class="btn sm pri" href="${esc(t.brouillon)}" target="_blank" rel="noopener">${ic("mail", "ic-sm")}Brouillon Gmail</a>${og("todo", "Brouillon Gmail")}` : ""}${t.lienSource ? `<a class="btn sm" href="${esc(t.lienSource)}" target="_blank" rel="noopener">${ic("ext", "ic-sm")}Source</a>` : ""}</div>` : ""}
+    ${t.syntheseAgent ? `<h3 class="sh">Synthèse agent${og("todo", "Synthèse agent")}</h3><p class="notes">${esc(t.syntheseAgent)}</p>` : ""}
+    ${t.modifie ? `<p class="small muted" style="margin-top:14px">Modifiée dans Notion le ${esc(new Date(t.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}${og("todo", "Modifié le")}. Le récap se modifie dans l'onglet Modifier, Mes notes dans le panneau de droite.</p>` : ""}`;
 }
 
 /**
@@ -300,7 +301,7 @@ function iniSelect(o, id) {
     groups.get(p.id).items.push(x);
   }
   const order = [...groups.values()].sort((a, b) => (linked.has(nid(b.p.id)) - linked.has(nid(a.p.id))) || a.p.nom.localeCompare(b.p.nom, "fr"));
-  return `<div class="thq"><label for="${id}">Initiative</label><select class="sel" id="${id}" data-tini="1" ${busy ? "disabled" : ""}>
+  return `<div class="thq"><label for="${id}">Initiative${og("todo", "Thème")}</label><select class="sel" id="${id}" data-tini="1" ${busy ? "disabled" : ""}>
     <option value="">Aucune initiative</option>${order.map((g) => `<optgroup label="${esc(g.p.nom)}">${g.items.map((x) => `<option value="${x.id}" ${nid(cur) === nid(x.id) ? "selected" : ""}>${esc(x.nom)}</option>`).join("")}</optgroup>`).join("")}
     ${cur && !iniById(cur) ? `<option value="${esc(cur)}" selected>Initiative liée (hors liste)</option>` : ""}</select>
     <span class="small muted">${busy ? "Enregistrement…" : "Choisir une initiative rattache aussi la tâche à son projet."}</span></div>`;
@@ -310,15 +311,15 @@ function links(o, nameOfProj, nameOfContact) {
   const t = o.task, busyP = o.saving.has("Projets"), busyC = o.saving.has(CONTACTS_REL), busyPi = o.saving.has(PISTES_REL);
   const linkedPi = new Set((t.pistesIds || []).map(nid));
   const pisteChoices = (S.schema?.pistes || []).filter((p) => !linkedPi.has(nid(p.id)));
-  const pisteRow = S.schema?.editable?.[PISTES_REL] ? `<dt>Pistes</dt><dd><div class="chips">${(t.pistesIds || []).map((p) => `<span class="chip st-encours">${ic("target", "ic-sm")}<a href="#/pistes/${p}">${esc(pisteName(p) || "Piste")}</a><button class="x" data-trel="${PISTES_REL}" data-trm="${p}" aria-label="Retirer la piste ${esc(pisteName(p) || "")}" ${busyPi || t.pistesMore ? "disabled" : ""}>×</button></span>`).join("") || `<span class="muted small">Aucune</span>`}</div>
+  const pisteRow = S.schema?.editable?.[PISTES_REL] ? `<dt>Pistes${og("todo", "Pistes/Opportunités")}</dt><dd><div class="chips">${(t.pistesIds || []).map((p) => `<span class="chip st-encours">${ic("target", "ic-sm")}<a href="#/pistes/${p}">${esc(pisteName(p) || "Piste")}</a><button class="x" data-trel="${PISTES_REL}" data-trm="${p}" aria-label="Retirer la piste ${esc(pisteName(p) || "")}" ${busyPi || t.pistesMore ? "disabled" : ""}>×</button></span>`).join("") || `<span class="muted small">Aucune</span>`}</div>
       ${t.pistesMore ? "" : `<label class="sr" for="tl-pi">Ajouter une piste</label><select class="sel addrel" id="tl-pi" data-tadd="${PISTES_REL}" ${busyPi ? "disabled" : ""}><option value="">+ Ajouter une piste</option>${pisteChoices.map((p) => `<option value="${p.id}">${esc(p.nom)}${p.issue ? ` (${esc(p.issue)})` : ""}</option>`).join("")}</select>`}</dd>` : "";
   const linkedP = new Set(t.projets.map(nid)), linkedC = new Set(t.contacts.map(nid));
   const projChoices = projets().filter((p) => !linkedP.has(nid(p.id)) && p.etat !== "Annulé" && p.etat !== "Terminé");
   const contactChoices = contactsList.sync().filter((c) => !linkedC.has(nid(c.id)));
   return `<dl class="kv">
-    <dt>Projets</dt><dd><div class="chips">${t.projets.map((p) => `<span class="chip pj">${ic("folder", "ic-sm")}<a href="#/projets/${p}">${esc(nameOfProj(p))}</a><button class="x" data-trel="Projets" data-trm="${p}" aria-label="Retirer le projet ${esc(nameOfProj(p))}" ${busyP || t.projetsMore ? "disabled" : ""}>×</button></span>`).join("") || `<span class="muted small">Aucun</span>`}</div>
+    <dt>Projets${og("todo", "Projets")}</dt><dd><div class="chips">${t.projets.map((p) => `<span class="chip pj">${ic("folder", "ic-sm")}<a href="#/projets/${p}">${esc(nameOfProj(p))}</a><button class="x" data-trel="Projets" data-trm="${p}" aria-label="Retirer le projet ${esc(nameOfProj(p))}" ${busyP || t.projetsMore ? "disabled" : ""}>×</button></span>`).join("") || `<span class="muted small">Aucun</span>`}</div>
       ${t.projetsMore ? "" : `<label class="sr" for="tl-p">Ajouter un projet</label><select class="sel addrel" id="tl-p" data-tadd="Projets" ${busyP ? "disabled" : ""}><option value="">+ Ajouter un projet</option>${projChoices.map((p) => `<option value="${p.id}">${esc(p.nom)}${p.etat === "Prospect" ? " (prospect)" : ""}</option>`).join("")}</select>`}</dd>
-    <dt>Contacts</dt><dd><div class="chips">${t.contacts.map((c) => `<span class="chip"><a href="#/contacts/${c}">${esc(nameOfContact(c))}</a><button class="x" data-trel="${CONTACTS_REL}" data-trm="${c}" aria-label="Retirer ${esc(nameOfContact(c))}" ${busyC || t.contactsMore ? "disabled" : ""}>×</button></span>`).join("") || `<span class="muted small">Aucun</span>`}</div>
+    <dt>Contacts${og("todo", "👱‍♀️ Contacts")}</dt><dd><div class="chips">${t.contacts.map((c) => `<span class="chip"><a href="#/contacts/${c}">${esc(nameOfContact(c))}</a><button class="x" data-trel="${CONTACTS_REL}" data-trm="${c}" aria-label="Retirer ${esc(nameOfContact(c))}" ${busyC || t.contactsMore ? "disabled" : ""}>×</button></span>`).join("") || `<span class="muted small">Aucun</span>`}</div>
       ${t.contactsMore ? "" : `<label class="sr" for="tl-c">Ajouter un contact</label><input class="inp addrel" id="tl-c" list="tl-cl" placeholder="+ Ajouter un contact (nom)" autocomplete="off" ${busyC ? "disabled" : ""}>
       <datalist id="tl-cl">${contactChoices.map((c) => `<option value="${esc(c.nom)}">`).join("")}</datalist>`}</dd>
     ${pisteRow}
@@ -332,7 +333,7 @@ function form(o) {
 
 function field(name, def, value, saving, attr, idp = "tx-") {
   const id = idp + nrm(name).replace(/[^a-z0-9]+/g, "-");
-  const lab = `<label for="${id}">${esc(LABEL[name] || name)} <span class="fstate">${saving ? "Enregistrement…" : ""}</span></label>`;
+  const lab = `<label for="${id}">${esc(LABEL[name] || name)}${attr === "tprop" ? og("todo", name) : ""} <span class="fstate">${saving ? "Enregistrement…" : ""}</span></label>`;
   const attrs = `id="${id}" data-${attr}="${esc(name)}" ${saving ? "disabled" : ""}`;
   const v = value ?? "";
   let input;

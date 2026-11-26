@@ -2,6 +2,8 @@
 // Chaque vue du cockpit expose la même interface : { id, label, icon, render(), open(id) }.
 import { contactsApi, todoApi, projetsIndex, pistesApi } from "./api.js";
 import { $, esc, ic, av, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, ficheTabs, parcChip, taSpan, syncOf, syncSpan, staleBanner, natureChip, setNoteSaver , swapHTML } from "./ui.js";
+import { og, ogLegend } from "./origines.js";
+import { refreshPistes, pisteSection } from "./pistes.js";
 
 const S = {
   items: null, schema: null, loading: false, error: null, fetchedAt: null, synchro: null,
@@ -30,9 +32,14 @@ export const contactsView = {
     if (!S.items) await load();
   },
   open: openContact,
+  openNew: (kind, id) => openNewContact(kind === "piste" ? id : null),
   close: () => { S.open = null; },
-  reload: () => load(true),
+  // Actualiser relit aussi « À créer » et les pistes sans contact (défaut du 26/11 : la liste restait figée).
+  reload: () => { S.acreer = null; return load(true); },
 };
+
+/** À relire au prochain affichage du mode « À créer » (après un rattachement ou une création). */
+export const invalidateACreer = () => { S.acreer = null; if (S.f.mode === "acreer") render(); };
 
 async function load(force = false) {
   if (S.loading) return;
@@ -75,6 +82,7 @@ function render() {
   const mseg = (v, lab) => `<button class="${f.mode === v ? "on" : ""}" data-cmode="${v}" aria-pressed="${f.mode === v}">${lab}</button>`;
   const head = `
     <div class="bar">
+      <a class="btn sm pri" href="#/contacts/new">${ic("plus", "ic-sm")}Contact</a>
       <div class="seg" role="group" aria-label="Affichage">${mseg("liste", ic("list", "ic-sm") + " Liste")}${mseg("cartes", ic("grid", "ic-sm") + " Cartes")}${mseg("acreer", ic("plus", "ic-sm") + " À créer")}</div>
       <div class="seg" role="group" aria-label="Type de fiche">${seg("tous", "Tous")}${seg("Personne", "Personnes")}${seg("Organisation", "Organisations")}${seg("Réseau", "Réseaux")}</div>
       <label class="sr" for="cf-p">Statut</label>
@@ -158,6 +166,7 @@ const SECS = { synthese: "Synthèse", pistes: "Pistes", taches: "Tâches", fiche
 function renderDrawer() {
   const o = S.open;
   if (!o || !drawerHost || !ownsDrawer("contacts")) return;
+  if (o.isNew) { renderNew(o); return; }
   const c = o.contact;
   ficheTop({ kind: c?.type === "Organisation" ? "Organisation" : c?.type === "Réseau" ? "Réseau" : "Contact", url: c?.url || null, side: true });
   renderSide("contacts", sideHTML({
@@ -201,23 +210,23 @@ function synthese(o) {
   const ld = c.dernierEchangeDirect;
   const names = (list) => list.map((x) => x.nom ? `<a href="#/contacts/${x.id}">${esc(x.nom)}</a>` : `<span class="muted">fiche non lue</span>`).join(", ");
   const people = c.type === "Personne"
-    ? `<div><span>Recommandé par</span><b>${c.partial || !c.recommandeParNoms ? "…" : c.recommandeParNoms.length ? names(c.recommandeParNoms) : "Contact direct"}</b></div>`
-    : `<div><span>Rattachements</span><b>${c.partial ? "…" : (c.rattacheANoms || []).length ? names(c.rattacheANoms) : orgs.length ? orgs.map((x) => esc(x.nom)).join(", ") : "Aucun"}</b></div>`;
-  return `<div class="sfacts">
-      ${c.type === "Personne" || !c.type ? `<div><span>Statut</span><b>${c.parcours ? esc(c.parcours) : "Non renseigné"}</b></div>` : ""}
-      ${c.nature == null && !c.partial ? `<div><span>Dernier échange</span><b>${c.dernierEchange ? esc(fd(c.dernierEchange)) : "Aucun"}</b><small>Propriété de la fiche (journal non lu)</small></div>` : `<div><span>Dernier échange direct</span><b>${ld ? esc(fd(ld.date)) : c.partial ? "…" : "Aucun au Journal de bord"}</b>${ld ? `<small><a href="https://www.notion.so/${esc(String(ld.id).replace(/-/g, ""))}" target="_blank" rel="noopener">${esc(ld.titre)}</a></small>` : c.dernierEchange ? `<small>Propriété Dernier échange : ${esc(fd(c.dernierEchange))}</small>` : ""}</div>`}
-      <div><span>Prochaine étape</span>${next ? `<b><a href="#/todo/${next.id}">${esc(next.nom)}</a></b>${next.echeance ? `<small>${due(next.echeance)}</small>` : ""}`
+    ? `<div><span>Recommandé par${og("contacts", "Recommandé par")}</span><b>${c.partial || !c.recommandeParNoms ? "…" : c.recommandeParNoms.length ? names(c.recommandeParNoms) : "Contact direct"}</b></div>`
+    : `<div><span>Rattachements${og("contacts", "Rattaché à")}</span><b>${c.partial ? "…" : (c.rattacheANoms || []).length ? names(c.rattacheANoms) : orgs.length ? orgs.map((x) => esc(x.nom)).join(", ") : "Aucun"}</b></div>`;
+  return `${ogLegend()}<div class="sfacts">
+      ${c.type === "Personne" || !c.type ? `<div><span>Statut${og("contacts", "Parcours réseau")}</span><b>${c.parcours ? esc(c.parcours) : "Non renseigné"}</b></div>` : ""}
+      ${c.nature == null && !c.partial ? `<div><span>Dernier échange${og("contacts", "Dernier échange")}</span><b>${c.dernierEchange ? esc(fd(c.dernierEchange)) : "Aucun"}</b><small>Propriété de la fiche (journal non lu)</small></div>` : `<div><span>Dernier échange direct${og("contacts", "dernierEchangeDirect")}</span><b>${ld ? esc(fd(ld.date)) : c.partial ? "…" : "Aucun au Journal de bord"}</b>${ld ? `<small><a href="https://www.notion.so/${esc(String(ld.id).replace(/-/g, ""))}" target="_blank" rel="noopener">${esc(ld.titre)}</a></small>` : c.dernierEchange ? `<small>Propriété Dernier échange : ${esc(fd(c.dernierEchange))}</small>` : ""}</div>`}
+      <div><span>Prochaine étape${og("contacts", next ? "prochaineEtape" : "Prochaine action")}</span>${next ? `<b><a href="#/todo/${next.id}">${esc(next.nom)}</a></b>${next.echeance ? `<small>${due(next.echeance)}</small>` : ""}`
         : c.prochaineAction ? `<b>${esc(c.prochaineAction)}</b><small>Prochaine action de la fiche ${due(c.dateProchaineAction)}</small>` : `<b>${open === null ? "…" : "Rien de prévu"}</b>`}</div>
-      ${c.prochaineEtapePiste ? `<div><span>Prochaine étape d'une piste</span><b><a href="#/pistes/${esc(c.prochaineEtapePiste.piste)}">${esc(c.prochaineEtapePiste.action || c.prochaineEtapePiste.nom)}</a></b><small>${c.prochaineEtapePiste.action ? esc(c.prochaineEtapePiste.nom) + " " : ""}${c.prochaineEtapePiste.date ? due(c.prochaineEtapePiste.date) : "sans date"}</small></div>` : ""}
+      ${c.prochaineEtapePiste ? `<div><span>Prochaine étape d'une piste${og("contacts", "prochaineEtapePiste")}</span><b><a href="#/pistes/${esc(c.prochaineEtapePiste.piste)}">${esc(c.prochaineEtapePiste.action || c.prochaineEtapePiste.nom)}</a></b><small>${c.prochaineEtapePiste.action ? esc(c.prochaineEtapePiste.nom) + " " : ""}${c.prochaineEtapePiste.date ? due(c.prochaineEtapePiste.date) : "sans date"}</small></div>` : ""}
       ${people}
-      <div><span>Liens dans Notion</span><b class="small">${n(rel.opportunites)} opportunité(s) · ${n(rel.todo)} tâche(s) · ${n(rel.journal)} échange(s)</b>${c.partial ? "" : `<small>Recommandé par ${n(rel.recommandePar)} · a recommandé ${n(rel.aRecommande)}</small>`}</div>
+      <div><span>Liens dans Notion${og("contacts", "liens")}</span><b class="small">${n(rel.opportunites)} opportunité(s) · ${n(rel.todo)} tâche(s) · ${n(rel.journal)} échange(s)</b>${c.partial ? "" : `<small>Recommandé par ${n(rel.recommandePar)} · a recommandé ${n(rel.aRecommande)}</small>`}</div>
     </div>
-    ${orgs.length ? `<h3 class="sh">Rattaché à</h3><div class="chips">${orgs.map((x) => `<a class="chip" href="#/contacts/${x.id}">${esc(x.nom)}</a>`).join("")}</div>` : ""}
+    ${orgs.length ? `<h3 class="sh">Rattaché à${og("contacts", "Rattaché à")}</h3><div class="chips">${orgs.map((x) => `<a class="chip" href="#/contacts/${x.id}">${esc(x.nom)}</a>`).join("")}</div>` : ""}
     <h3 class="sh">À faire ${open ? `<button class="lnk" data-csec="taches">${open.length}</button>` : ""}</h3>
     ${open === null ? `<p class="empty">Chargement des tâches…</p>` : !Array.isArray(o.tasks) ? `<p class="empty">Tâches indisponibles pour l'instant.</p>` : open.length ? `<div class="list">${open.slice(0, 3).map(taskRow).join("")}</div>${open.length > 3 ? `<p class="small muted"><button class="lnk" data-csec="taches">Voir les ${open.length} tâches ouvertes</button></p>` : ""}` : `<p class="empty">Aucune tâche ouverte.</p>`}
-    ${c.syntheseAgent ? `<h3 class="sh">Synthèse agent</h3><p class="notes">${esc(c.syntheseAgent)}</p>` : ""}
-    ${c.modifie ? `<p class="small muted" style="margin-top:14px">Modifié dans Notion le ${esc(new Date(c.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}. Les notes se modifient dans le panneau Mes notes.</p>` : ""}
-    ${c.nature ? `<p class="small muted">Nature calculée par le cockpit : client ou partenaire si le contact est relié par une tâche à une mission en cours ou terminée, ou lié à une piste gagnée ou partenaire, réseau s'il a recommandé quelqu'un ou s'il est hors parcours, prospect sinon.</p>` : ""}`;
+    ${c.syntheseAgent ? `<h3 class="sh">Synthèse agent${og("contacts", "Synthèse agent")}</h3><p class="notes">${esc(c.syntheseAgent)}</p>` : ""}
+    ${c.modifie ? `<p class="small muted" style="margin-top:14px">Modifié dans Notion le ${esc(new Date(c.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}${og("contacts", "Modifié le")}. Les notes se modifient dans le panneau Mes notes.</p>` : ""}
+    ${c.nature ? `<p class="small muted">Nature${og("contacts", "nature")} calculée par le cockpit : client ou partenaire si le contact est relié par une tâche à une mission en cours ou terminée, ou lié à une piste gagnée ou partenaire, réseau s'il a recommandé quelqu'un ou s'il est hors parcours, prospect sinon.</p>` : ""}`;
 }
 
 const taskRow = (x) => `<a class="row" href="#/todo/${x.id}"><div class="rm"><div class="rt ${isDone(x) ? "strike" : ""}">${esc(x.nom)}</div>
@@ -248,19 +257,47 @@ function pistesSection(o) {
   if (p === null) return `${head}<p class="empty">Chargement des pistes…</p>`;
   if (p === "error") return `${head}<p class="empty">Pistes indisponibles pour l'instant.</p>`;
   if (!p.length) return `${head}<p class="empty">Aucune piste liée à ce contact dans Notion.</p>`;
-  return `${head}<div class="list">${p.map(pisteRow).join("")}</div>`;
+  return `${head}<p class="small muted" style="margin:0 0 6px">Prochaine action de chaque piste${og("contacts", "pistes")} : sa tâche ouverte liée à l'échéance la plus proche.</p><div class="list">${p.map(pisteRow).join("")}</div>`;
 }
 
+// Prochaine action de la piste : sa tâche ouverte liée à l'échéance la plus proche (26/11/2026).
 const pisteRow = (x) => `<a class="row" href="#/pistes/${x.id}"><div class="rm"><div class="rt">${esc(x.nom)}</div>
     <div class="ameta">${x.etape ? `<span class="chip">${esc(x.etape)}</span>` : ""}${x.issue ? `<span class="chip">${esc(x.issue)}</span>` : ""}</div>
-    ${x.prochaineAction ? `<div class="rs clamp2">${ic("arrow", "ic-sm")} ${esc(x.prochaineAction)}</div>` : ""}</div><div class="rr">${x.dateProchaineAction ? due(x.dateProchaineAction) : ""}</div></a>`;
+    ${x.prochaine ? `<div class="rs clamp2">${ic("arrow", "ic-sm")} ${esc(x.prochaine.nom)}</div>` : x.prochaineCalculee ? `<div class="rs nx-none">Aucune action planifiée</div>` : ""}</div><div class="rr">${x.prochaine?.echeance ? due(x.prochaine.echeance) : ""}</div></a>`;
 
 // ---------------- Contacts « À créer » (C7, lot 2 suite) ----------------
 
 async function loadACreer() {
   S.acreer = "loading"; render();
-  try { S.acreer = await contactsApi.aCreer(); } catch (e) { S.acreer = { error: e.message }; }
+  try { S.acreer = await contactsApi.aCreer(); S.acreerAt = Date.now(); } catch (e) { S.acreer = { error: e.message }; }
+  if (!S.items && !S.loading) load(); // noms pour « Rattacher un existant »
   render();
+}
+
+/** Piste active sans contact, avec les deux gestes : rattacher un existant, créer et rattacher. */
+function sansContactRow(x) {
+  const busy = S.scBusy === x.id;
+  return `<div class="row" style="flex-wrap:wrap"><a class="rm" href="#/pistes/${x.id}"><div class="rt">${esc(x.nom)}</div><div class="ameta">${x.etape ? `<span class="chip">${esc(x.etape)}</span>` : ""}${x.issue ? `<span class="chip">${esc(x.issue)}</span>` : ""}</div></a>
+    <div class="sc-acts" style="flex-basis:100%"><label class="sr" for="sc-${x.id}">Rattacher un contact existant à ${esc(x.nom)}</label>
+      <input class="inp" id="sc-${x.id}" list="sc-cl" placeholder="Rattacher un existant (nom)" autocomplete="off" data-scpiste="${x.id}" ${busy ? "disabled" : ""}>
+      <button class="btn sm" type="button" data-scgo="${x.id}" ${busy ? "disabled" : ""}>${busy ? "Rattachement…" : "Rattacher"}</button>
+      <a class="btn sm pri" href="#/contacts/new/piste/${x.id}">${ic("plus", "ic-sm")}Créer et rattacher</a></div></div>`;
+}
+
+/** Rattache un contact existant à une piste (écrit dans Notion par la fonction pistes), puis relit la liste. */
+async function rattacherExistant(pisteId) {
+  const el = host?.querySelector(`[data-scpiste="${CSS.escape(pisteId)}"]`);
+  const v = el?.value.trim() || "";
+  const c = (S.items || []).find((x) => nrm(String(x.nom).trim()) === nrm(v));
+  if (!c) { toast(v ? `Contact « ${v} » introuvable parmi les contacts actifs.` : "Choisis un contact dans la liste.", "err"); el?.focus(); return; }
+  S.scBusy = pisteId; render();
+  try {
+    await pistesApi.update(pisteId, { "👱‍♀️ Contacts": { add: [c.id] } });
+    toast(`${c.nom} rattaché à la piste dans Notion.`);
+    refreshPistes();
+    S.scBusy = null;
+    await loadACreer();
+  } catch (e) { toast(e.message, "err"); S.scBusy = null; render(); }
 }
 
 const SRC = { pistes: ["pistes", "Piste"], todo: ["todo", "Tâche"], journal: [null, "Journal"] };
@@ -277,8 +314,9 @@ function aCreerHTML() {
         : `<p class="empty">Aucune personne à créer : toutes les relations Contacts des pistes, des tâches et du journal pointent vers une fiche existante, et aucune personne n'y est mentionnée (@) sans fiche.</p>`}
     </section>
     <section class="card" style="margin-top:14px"><div class="card-h"><h2>Pistes actives sans contact</h2><span class="count">${a.pistesSansContact.length}</span></div>
-      <p class="small muted">Rattache un contact existant depuis l'onglet Contacts de la fiche piste, ou crée-le avec « Contact recommandé » dans la vue Réseau.</p>
-      ${a.pistesSansContact.length ? `<div class="list">${a.pistesSansContact.map((x) => `<a class="row" href="#/pistes/${x.id}"><div class="rm"><div class="rt">${esc(x.nom)}</div><div class="ameta">${x.etape ? `<span class="chip">${esc(x.etape)}</span>` : ""}${x.issue ? `<span class="chip">${esc(x.issue)}</span>` : ""}</div></div></a>`).join("")}</div>` : `<p class="empty">Toutes les pistes actives ont au moins un contact.</p>`}
+      <p class="small muted">Pour chaque piste, rattache un contact existant ou crée-le et rattache-le d'un geste. La liste est relue à chaque affichage et après chaque geste.${S.acreerAt ? ` Lue à ${esc(new Date(S.acreerAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }))}${a.synchro ? `, ${syncSpan(a.synchro)}` : ""}.` : ""}</p>
+      ${a.pistesSansContact.length ? `<div class="list">${a.pistesSansContact.map(sansContactRow).join("")}</div>
+        <datalist id="sc-cl">${(S.items || []).map((c) => `<option value="${esc(String(c.nom).trim())}">`).join("")}</datalist>` : `<p class="empty">Toutes les pistes actives ont au moins un contact.</p>`}
     </section>`;
 }
 
@@ -291,7 +329,7 @@ function notesOf(c, o) {
   const text = { [NOTES_CONTACT]: c.notesContact, [NOTES_ENTREPRISE]: c.notesEntreprise };
   const lab = { [NOTES_CONTACT]: "Notes contacts", [NOTES_ENTREPRISE]: "Notes entreprise" };
   const editable = (p) => !c.partial && o.values && m[p] === true && S.schema?.editable?.[p];
-  const one = (p) => ({ label: lab[p], text: text[p], prop: p, editable: editable(p), locked: !c.partial && m[p] === false, saved: o.savedNote === p });
+  const one = (p) => ({ label: lab[p], text: text[p], prop: p, editable: editable(p), locked: !c.partial && m[p] === false, saved: o.savedNote === p, og: og("contacts", p) });
   const out = [one(mine)];
   if (text[other]) out.push(one(other));
   return out;
@@ -334,7 +372,7 @@ function form(o) {
 
 function field(name, def, value, saving) {
   const id = "fx-" + nrm(name).replace(/[^a-z0-9]+/g, "-");
-  const lab = `<label for="${id}">${esc(LABEL[name] || name)} <span class="fstate" data-state="${esc(name)}">${saving ? "Enregistrement…" : ""}</span></label>`;
+  const lab = `<label for="${id}">${esc(LABEL[name] || name)}${og("contacts", name)} <span class="fstate" data-state="${esc(name)}">${saving ? "Enregistrement…" : ""}</span></label>`;
   const attrs = `id="${id}" data-cprop="${esc(name)}" ${saving ? "disabled" : ""}`;
   const v = value ?? "";
   let input;
@@ -381,12 +419,15 @@ export function bindContactEvents(root) {
     const t = e.target.closest("[data-type]");
     if (t) { S.f.type = t.dataset.type; render(); return; }
     const m = e.target.closest("[data-cmode]");
-    if (m) { S.f.mode = m.dataset.cmode; render(); return; }
+    if (m) { S.f.mode = m.dataset.cmode; if (S.f.mode === "acreer") S.acreer = null; render(); return; }
+    const sc = e.target.closest("[data-scgo]");
+    if (sc) { rattacherExistant(sc.dataset.scgo); return; }
     const so = e.target.closest("[data-csort]");
     if (so) { S.f.sort = so.dataset.csort; render(); return; }
     if (e.target.closest('[data-act="reload"]')) load(true);
   });
   root.addEventListener("input", (e) => { if (e.target.id === "cf-q") { S.f.q = e.target.value; render(); } });
+  root.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.dataset?.scpiste) { e.preventDefault(); rattacherExistant(e.target.dataset.scpiste); } });
   root.addEventListener("change", (e) => { if (e.target.id === "cf-p") { S.f.parcours = e.target.value; render(); } });
 }
 export function bindDrawerEvents(root) {
@@ -397,5 +438,158 @@ export function bindDrawerEvents(root) {
   root.addEventListener("change", (e) => { if (e.target.dataset?.cprop) saveField(e.target); });
   root.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && e.target.dataset?.cprop && e.target.tagName === "INPUT") { e.preventDefault(); e.target.blur(); }
+  });
+}
+
+// ---------------- Créer un contact (26/11/2026) ----------------
+// Formulaire repris de la maquette (Nouveau contact) et des propriétés existantes de la base Contacts : nom,
+// type, poste (Position), organisation (Rattaché à), mail, téléphone, LinkedIn, recommandé par, statut de
+// prospection (Qualif Prospect), parcours réseau, notes. Aucune propriété ni option n'est créée dans Notion.
+// Avant de créer, les contacts au nom proche (miroir) sont proposés. Avec une piste : « Créer et rattacher ».
+
+async function openNewContact(pisteId) {
+  S.open = { id: "new", isNew: true, piste: pisteId, pisteNom: null, f: {}, doublons: null, busy: false, err: null, force: false, saving: new Set() };
+  setDrawerOwner("contacts");
+  renderDrawer();
+  try { if (!S.schema) S.schema = await contactsApi.schema(); } catch (e) { if (S.open?.isNew) S.open.err = e.message; }
+  if (!S.items && !S.loading) load(); else if (S.loading) await contactIndex();
+  if (pisteId) {
+    try { const r = await pistesApi.get(pisteId); if (S.open?.isNew && S.open.piste === pisteId) S.open.pisteNom = r.piste?.nom || null; } catch { /* nom de la piste indisponible */ }
+  }
+  renderDrawer();
+}
+
+const NOUVEAU = [
+  ["Nom", "Nom", "text"], ["Type", "Type", "select"], ["Position", "Poste", "datalist"], ["Rattaché à", "Organisation", "org"],
+  ["Email", "Mail", "email"], ["Phone", "Téléphone", "tel"], ["Linkedin", "LinkedIn", "url"], ["Recommandé par", "Recommandé par", "pers"],
+  ["Qualif Prospect", "Statut de prospection", "select"], ["Parcours réseau", "Parcours réseau", "select"], ["Notes", "Notes", "textarea"],
+];
+
+function renderNew(o) {
+  ficheTop({ kind: "Nouveau contact", url: null, side: false });
+  const ed = S.schema?.editable || {}, f = o.f;
+  const orgs = (S.items || []).filter((c) => c.type === "Organisation" || c.type === "Réseau");
+  const pers = (S.items || []).filter((c) => c.type === "Personne" || !c.type);
+  const fld = ([k, label, kind]) => {
+    const id = "nc-" + nrm(k).replace(/[^a-z0-9]+/g, "-"), v = f[k] ?? (k === "Type" ? "Personne" : "");
+    const dis = o.busy ? "disabled" : "";
+    const ogk = k === "Notes" ? ((f["Type"] || "Personne") === "Personne" ? NOTES_CONTACT : NOTES_ENTREPRISE) : k;
+    const lab = `<label for="${id}">${esc(label)}${k === "Nom" ? " *" : ""}${og("contacts", ogk)}</label>`;
+    if (kind === "select") {
+      const opts = ed[k]?.options; if (!opts) return "";
+      return `<div class="fld">${lab}<select id="${id}" data-nc="${esc(k)}" ${dis}>${k === "Type" ? "" : `<option value="">Non renseigné</option>`}${opts.map((x) => `<option ${x === v ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></div>`;
+    }
+    if (kind === "datalist") {
+      const opts = ed[k]?.options || [];
+      return `<div class="fld">${lab}<input id="${id}" data-nc="${esc(k)}" list="nc-pos" value="${esc(v)}" autocomplete="off" placeholder="Un poste déjà présent dans Notion" ${dis}><datalist id="nc-pos">${opts.map((x) => `<option value="${esc(x)}">`).join("")}</datalist><span class="small muted">Un poste déjà présent dans Notion, ou vide (le cockpit n'ajoute pas d'option).</span></div>`;
+    }
+    if (kind === "org" || kind === "pers") {
+      const list = kind === "org" ? orgs : pers;
+      return `<div class="fld">${lab}<input id="${id}" data-nc="${esc(k)}" list="${id}-l" value="${esc(v)}" autocomplete="off" placeholder="${kind === "org" ? "Organisation ou réseau existant" : "Qui t'a présenté cette personne"}" ${dis}><datalist id="${id}-l">${list.map((c) => `<option value="${esc(String(c.nom).trim())}">`).join("")}</datalist></div>`;
+    }
+    if (kind === "textarea") return `<div class="fld wide">${lab}<textarea id="${id}" data-nc="${esc(k)}" rows="3" maxlength="10000" ${dis}>${esc(v)}</textarea><span class="small muted">Rangées dans ${(f["Type"] || "Personne") === "Personne" ? "Notes contacts" : "Notes entreprise"}.</span></div>`;
+    return `<div class="fld ${k === "Nom" ? "wide" : ""}">${lab}<input id="${id}" type="${kind}" data-nc="${esc(k)}" value="${esc(v)}" autocomplete="off" ${k === "Nom" ? "required" : ""} ${kind === "url" ? `placeholder="https://"` : ""} ${dis}></div>`;
+  };
+  const d = o.doublons;
+  const dbl = d && d.length ? `<div class="dbl wide"><b>${d.length} contact${d.length > 1 ? "s" : ""} au nom proche dans Notion</b><p class="small" style="margin:4px 0 8px">Vérifie avant de créer une seconde fiche.</p>
+      <div class="list">${d.map((x) => `<div class="row"><div class="rm"><div class="rt">${esc(x.nom)}</div><div class="rs">${esc([x.type, x.position, x.raison].filter(Boolean).join(" · "))}</div></div>
+        <div class="rr"><a class="btn sm" href="#/contacts/${x.id}">Ouvrir</a>${o.piste ? `<button class="btn sm pri" type="button" data-ncpick="${x.id}" ${o.busy ? "disabled" : ""}>Rattacher celui-ci</button>` : ""}</div></div>`).join("")}</div>
+      ${o.force ? `<p class="small" style="margin-top:8px">Aucun ne convient : <button class="btn sm" type="button" data-ncact="force" ${o.busy ? "disabled" : ""}>Créer quand même</button></p>` : ""}</div>` : "";
+  swapHTML(drawerHost, `
+    <div class="dh"><span class="ifmt">${ic("users")}</span><div style="flex:1;min-width:0"><h1>Nouveau contact</h1>
+      <div class="sub">${o.piste ? `Créé dans Notion puis rattaché à la piste <a href="#/pistes/${o.piste}">${esc(o.pisteNom || "…")}</a>` : "Créé dans la base Contacts de Notion"}</div></div></div>
+    ${o.err ? `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(o.err)}</span></div>` : ""}
+    ${!S.schema ? `<p class="empty">Chargement des champs…</p>` : `<form class="form" id="nc-form" onsubmit="return false">${NOUVEAU.map(fld).join("")}${dbl}
+      <div class="mfoot wide"><a class="btn sm" href="${o.piste ? `#/pistes/${o.piste}` : "#/contacts"}">Annuler</a><button class="btn sm pri" type="button" data-ncact="create" ${o.busy ? "disabled" : ""}>${o.busy ? "Création dans Notion…" : o.piste ? "Créer et rattacher" : "Créer le contact"}</button></div></form>
+      <p class="small muted" style="margin-top:10px">Seules les propriétés existantes de la base Contacts sont remplies. Les contacts au nom proche sont cherchés dans le miroir pendant la saisie du nom.</p>`}`);
+}
+
+/** Lit le formulaire dans o.f (valeurs telles que saisies). */
+function readNew(o) {
+  for (const el of drawerHost.querySelectorAll("#nc-form [data-nc]")) o.f[el.dataset.nc] = el.value;
+}
+
+let dblTimer = null;
+function watchDoublons(o) {
+  clearTimeout(dblTimer);
+  dblTimer = setTimeout(async () => {
+    const nom = String(o.f["Nom"] || "").trim();
+    if (nom.length < 3) { o.doublons = null; renderDrawer(); return; }
+    try { const r = await contactsApi.doublons(nom); if (S.open === o && String(o.f["Nom"] || "").trim() === nom) { o.doublons = r.doublons || []; o.force = false; renderDrawer(); } } catch { /* recherche indisponible : la création la refera */ }
+  }, 350);
+}
+
+/** Valeurs envoyées à la fonction, sous les noms Notion. Null (et message) si une saisie ne correspond à rien. */
+function valuesOf(o) {
+  const f = o.f, v = {};
+  const byName = (list, n) => list.find((c) => nrm(String(c.nom).trim()) === nrm(String(n).trim()));
+  for (const k of ["Nom", "Type", "Position", "Email", "Phone", "Linkedin", "Qualif Prospect", "Parcours réseau"]) if (String(f[k] ?? "").trim()) v[k] = String(f[k]).trim();
+  if (!v["Type"]) v["Type"] = "Personne";
+  if (v["Position"] && !(S.schema?.editable?.Position?.options || []).includes(v["Position"])) { o.err = `« ${v["Position"]} » n'est pas un poste de Notion : choisis-en un dans la liste ou laisse vide (le cockpit ne crée pas de nouvelle option).`; return null; }
+  for (const [k, what] of [["Rattaché à", "organisation"], ["Recommandé par", "personne"]]) {
+    if (!String(f[k] ?? "").trim()) continue;
+    const c = byName(S.items || [], f[k]);
+    if (!c) { o.err = `${what === "organisation" ? "Organisation" : "Personne"} « ${f[k]} » introuvable parmi les contacts actifs : choisis-la dans la liste.`; return null; }
+    v[k] = [c.id];
+  }
+  if (String(f["Notes"] ?? "").trim()) v[v["Type"] === "Personne" ? NOTES_CONTACT : NOTES_ENTREPRISE] = String(f["Notes"]).trim();
+  return v;
+}
+
+async function createNew(o, force = false) {
+  readNew(o); o.err = null;
+  const v = valuesOf(o);
+  if (!v || !v["Nom"]) { if (v) o.err = "Donne le nom du contact."; renderDrawer(); return; }
+  o.busy = true; renderDrawer();
+  try {
+    const r = await contactsApi.create(v, { piste: o.piste, confirmerDoublon: force });
+    if (S.open !== o) return;
+    S.acreer = null;
+    load(true);
+    if (o.piste) {
+      if (r.rattachementErreur) toast(r.rattachementErreur, "err"); else toast(`${r.contact.nom} créé dans Notion et rattaché à la piste.`);
+      refreshPistes(); pisteSection(o.piste, "contacts");
+      location.hash = `#/pistes/${o.piste}`;
+    } else {
+      toast(`${r.contact.nom} créé dans Notion.`);
+      location.hash = `#/contacts/${r.contact.id}`;
+    }
+  } catch (e) {
+    if (S.open !== o) return;
+    o.busy = false;
+    if (e.code === "doublon") { o.doublons = e.details?.doublons || o.doublons || []; o.force = true; o.err = e.message; }
+    else o.err = e.message;
+    renderDrawer();
+  }
+}
+
+/** Rattache à la piste un contact existant proposé comme doublon, au lieu d'en créer un. */
+async function pickExisting(o, id) {
+  o.busy = true; renderDrawer();
+  try {
+    await pistesApi.update(o.piste, { "👱‍♀️ Contacts": { add: [id] } });
+    toast("Contact existant rattaché à la piste dans Notion.");
+    S.acreer = null; refreshPistes(); pisteSection(o.piste, "contacts");
+    location.hash = `#/pistes/${o.piste}`;
+  } catch (e) { o.busy = false; o.err = e.message; renderDrawer(); }
+}
+
+export function bindNewContactEvents(root) {
+  root.addEventListener("input", (e) => {
+    const o = S.open; if (!o?.isNew || !ownsDrawer("contacts") || !e.target.dataset?.nc) return;
+    o.f[e.target.dataset.nc] = e.target.value;
+    if (e.target.dataset.nc === "Nom") watchDoublons(o);
+  });
+  root.addEventListener("change", (e) => {
+    const o = S.open; if (!o?.isNew || !ownsDrawer("contacts") || e.target.dataset?.nc !== "Type") return;
+    o.f["Type"] = e.target.value; readNew(o); renderDrawer();
+  });
+  root.addEventListener("click", (e) => {
+    const o = S.open; if (!o?.isNew || !ownsDrawer("contacts")) return;
+    const a = e.target.closest("[data-ncact]")?.dataset.ncact;
+    if (a === "create") { createNew(o, false); return; }
+    if (a === "force") { createNew(o, true); return; }
+    const pk = e.target.closest("[data-ncpick]");
+    if (pk) pickExisting(o, pk.dataset.ncpick);
   });
 }

@@ -1,8 +1,9 @@
 // Point d'entrée : connexion, navigation par adresse, fiche plein écran, recherche globale.
 // Adresses : #/contacts, #/contacts/<id>, #/todo, #/todo/<id>, #/todo/new, #/todo/new/<id du contact>,
+// #/contacts/new, #/contacts/new/piste/<id de la piste> (création d'un contact, 26/11/2026),
 // #/todo/new/projet/<id du projet>, #/todo/new/piste/<id de la piste> (lot 2, suite), #/projets, #/projets/<id>, #/pistes, #/pistes/<id> (lot 2), #/reseau (lot 2).
 import { onAuth, sendMagicLink, signOut, isAllowed, currentSession, consumeUrlTokens } from "./session.js";
-import { contactsView, bindContactEvents, bindDrawerEvents } from "./contacts.js";
+import { contactsView, bindContactEvents, bindDrawerEvents, bindNewContactEvents } from "./contacts.js";
 import { todoView, bindTodoEvents, bindTodoDrawerEvents } from "./todo.js";
 import { projetsView, bindProjetsEvents, bindProjetsDrawerEvents } from "./projets.js";
 import { pistesView, bindPistesEvents, bindPistesDrawerEvents } from "./pistes.js";
@@ -154,6 +155,7 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#draw
 window.addEventListener("hashchange", route);
 bindContactEvents($("#app"));
 bindDrawerEvents($("#dr-body"));
+bindNewContactEvents($("#dr-body"));
 bindTodoEvents($("#app"));
 bindTodoDrawerEvents($("#dr-body"));
 bindProjetsEvents($("#app"));

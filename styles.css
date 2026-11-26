@@ -538,3 +538,30 @@ a.tl-act, a.tl-int { display: block; }
 .pilink { display: flex; flex-direction: column; gap: 4px; border: 1.5px solid var(--line); border-radius: var(--r-panel); padding: 10px 12px; text-decoration: none; color: inherit; min-width: 0; }
 .pilink:hover { border-color: var(--teal); }
 .pilink b { overflow-wrap: anywhere; }
+
+/* Pastille d'origine d'un champ (retours du 26/11/2026) : Toi, Agent, Calculé, Formule Notion ; crayon si modifiable ici. */
+.og, .sfacts span.og, .pk span.og { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; vertical-align: 1px; font: 700 10.5px/16px var(--font-body); letter-spacing: .2px; border-radius: var(--r-chip); padding: 0 6px; border: 1px solid var(--line); color: var(--ink-muted); background: var(--surface); white-space: nowrap; text-transform: none; }
+.og .ic-og { width: 11px; height: 11px; }
+.og.og-toi { color: var(--teal-strong); border-color: var(--teal-50); background: var(--teal-25); }
+.og.og-agent { color: var(--st-violet); border-color: var(--st-violet-bg); background: var(--st-violet-bg); }
+.og.og-calc { color: var(--st-blue); border-color: var(--st-blue-bg); background: var(--st-blue-bg); }
+.og.og-formule { color: var(--st-amber); border-color: var(--st-amber-bg); background: var(--st-amber-bg); }
+.og-legend { display: flex; flex-wrap: wrap; gap: 4px 2px; align-items: center; margin: 2px 0 10px; }
+.og-legend .og { margin-left: 0; }
+/* Prochaine action calculée (TO DO) et note libre de Notion */
+.nx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nx-none { color: var(--alert-strong); font-weight: 700; }
+.note-libre { border: 1.5px dashed var(--line-dashed); border-radius: 12px; padding: 10px 12px; margin-top: 12px; }
+.note-libre .nl-h { font-size: 12px; font-weight: 700; color: var(--ink-muted); }
+.note-libre p { margin: 4px 0 0; overflow-wrap: anywhere; }
+.planf { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.planf .inp { flex: 1 1 160px; min-width: 0; }
+.planf input[type="date"] { flex: 0 1 150px; min-width: 0; }
+.pi-row .rr { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.pi-plan-row { flex-wrap: wrap; }
+.pi-plan-row .planf { flex-basis: 100%; }
+/* Création d'un contact */
+.dbl { border: 1.5px solid var(--st-amber-bg); background: var(--st-amber-bg); border-radius: 12px; padding: 10px 12px; }
+.dbl .row { background: var(--surface); }
+.sc-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.sc-acts .inp { flex: 1 1 180px; min-width: 0; }

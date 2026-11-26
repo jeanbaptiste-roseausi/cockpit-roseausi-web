@@ -2,6 +2,7 @@
 // avec la page Contexte, les tâches ouvertes et les derniers échanges, changement d'état.
 import { projetsApi } from "./api.js";
 import { setTaskEtat } from "./todo.js";
+import { og, ogLegend } from "./origines.js";
 import { $, esc, ic, av, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, fmtIcon, taSpan, syncOf, syncSpan, staleBanner, setNoteSaver , swapHTML } from "./ui.js";
 
 const S = { items: null, etats: [], options: null, thHide: {}, thNone: false, thSel: null, regles: null, loading: false, error: null, fetchedAt: null, synchro: null, f: { v: "En cours", q: "" }, open: null };
@@ -109,7 +110,7 @@ function renderDrawer() {
   ficheTop({ kind: "Projet", url: p?.url || null, side: true });
   // Lot 1 bis : Mes notes du projet, modifiables si Notion les donne sans mise en forme.
   renderSide("projets", sideHTML({
-    notes: [{ label: "Mes notes", text: p && !p.partial ? p.mesNotes : "", prop: "Mes notes", editable: !!(p && !p.partial && p.textesModifiables?.["Mes notes"] && canEdit("Mes notes")), locked: p?.textesModifiables?.["Mes notes"] === false, saved: o.savedNote === "Mes notes" }],
+    notes: [{ label: "Mes notes", text: p && !p.partial ? p.mesNotes : "", prop: "Mes notes", editable: !!(p && !p.partial && p.textesModifiables?.["Mes notes"] && canEdit("Mes notes")), locked: p?.textesModifiables?.["Mes notes"] === false, saved: o.savedNote === "Mes notes", og: og("projets", "Mes notes") }],
     notesMissing: !p || p.partial ? "Chargement des notes…" : !("mesNotes" in p) ? "Mes notes du projet non lues : la fonction projets n'est pas encore à jour." : "",
   }));
   if (!p) { drawerHost.innerHTML = o.error ? `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(o.error)}</span></div>` : `<p class="empty">Chargement du projet…</p>`; return; }
@@ -125,25 +126,27 @@ function renderDrawer() {
       <h1>${esc(p.nom)}</h1>${p.nomComplet && p.nomComplet !== p.nom ? `<div class="sub">${esc(p.nomComplet)}</div>` : ""}</div></div>
     ${o.error ? `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(o.error)}</span></div>` : ""}
     ${full && o.params ? paramForm(p, o) : ""}
-    ${p.motifMeteo ? `<div class="banner ${[...(p.meteo || " ")][0] === "🔴" ? "" : "info"}">${ic("alert", "ic-sm")}<span>${esc(p.motifMeteo)}</span></div>` : ""}
+    ${full ? ogLegend() : ""}
+    ${p.meteo ? `<p class="small muted" style="margin:-4px 0 8px">Météo${og("projets", "Météo")}</p>` : ""}
+    ${p.motifMeteo ? `<div class="banner ${[...(p.meteo || " ")][0] === "🔴" ? "" : "info"}">${ic("alert", "ic-sm")}<span>${esc(p.motifMeteo)}${og("projets", "Motif météo")}</span></div>` : ""}
     <div class="pkpis">
-      <div class="pk"><span>Budget consommé</span><b class="${b.niveau === "crit" ? "neg" : b.niveau === "warn" ? "warn" : ""}">${b.consommePct != null ? pct(b.consommePct) : "–"}</b><small>${budgetHint(b)}</small>${gauge(b)}</div>
-      <div class="pk"><span>Retards des tiers</span><b>${p.retardsTiers ?? "–"}</b><small>${p.retardsTiers == null ? "absent dans Notion" : "page Contexte"}</small></div>
-      <div class="pk"><span>Tâches ouvertes</span><b>${p.taches.ouvertes}</b><small>${p.taches.retard ? `${p.taches.retard} en retard` : "aucune en retard"}</small></div>
-      <div class="pk"><span>Dernier échange</span><b>${p.dernierEchange ? esc(fd(p.dernierEchange.date)) : "–"}</b><small>${p.dernierEchange ? ago(p.dernierEchange.date) : "aucun au journal"}</small></div>
-      <div class="pk"><span>Prochain jalon</span><b>${p.dateJalon ? esc(fd(p.dateJalon)) : "–"}</b><small>${p.prochainJalon ? esc(String(p.prochainJalon).slice(0, 60)) : "absent dans Notion"}</small></div>
+      <div class="pk"><span>Budget consommé${og("projets", "Consommé (%)")}</span><b class="${b.niveau === "crit" ? "neg" : b.niveau === "warn" ? "warn" : ""}">${b.consommePct != null ? pct(b.consommePct) : "–"}</b><small>${budgetHint(b)}</small>${gauge(b)}</div>
+      <div class="pk"><span>Retards des tiers${og("projets", "Retards des tiers")}</span><b>${p.retardsTiers ?? "–"}</b><small>${p.retardsTiers == null ? "absent dans Notion" : "page Contexte"}</small></div>
+      <div class="pk"><span>Tâches ouvertes${og("projets", "tachesOuvertes")}</span><b>${p.taches.ouvertes}</b><small>${p.taches.retard ? `${p.taches.retard} en retard` : "aucune en retard"}</small></div>
+      <div class="pk"><span>Dernier échange${og("projets", "dernierEchange")}</span><b>${p.dernierEchange ? esc(fd(p.dernierEchange.date)) : "–"}</b><small>${p.dernierEchange ? ago(p.dernierEchange.date) : "aucun au journal"}</small></div>
+      <div class="pk"><span>Prochain jalon${og("projets", "Prochain jalon")}</span><b>${p.dateJalon ? esc(fd(p.dateJalon)) : "–"}</b><small>${p.prochainJalon ? esc(String(p.prochainJalon).slice(0, 60)) : "absent dans Notion"}</small></div>
       <div class="pk"><span>Prochain rendez-vous</span><b>–</b><small>agenda non relié au cockpit</small></div>
     </div>
-    <section class="sec"><h2>État</h2><div class="statusbar" role="group" aria-label="Changer l'état du projet">${S.etats.map((s) => `<button class="${s === p.etat ? "on" : ""}" data-pstate="${esc(s)}" ${s === p.etat || o.saving ? "disabled" : ""} aria-pressed="${s === p.etat}">${esc(s)}</button>`).join("")}</div></section>
+    <section class="sec"><h2>État${og("projets", "État")}</h2><div class="statusbar" role="group" aria-label="Changer l'état du projet">${S.etats.map((s) => `<button class="${s === p.etat ? "on" : ""}" data-pstate="${esc(s)}" ${s === p.etat || o.saving ? "disabled" : ""} aria-pressed="${s === p.etat}">${esc(s)}</button>`).join("")}</div></section>
     <div class="pgrid">
       <section class="sec"><h2>Tâches ouvertes <span class="count">${full ? p.tachesListe.filter((t) => !isDone(done.get(t.id) || t)).length : ""}</span><a class="btn sm" style="margin-left:auto" href="#/todo/new/projet/${p.id}">${ic("plus", "ic-sm")}Tâche</a></h2>
         ${!full ? `<p class="empty">Chargement…</p>` : p.tachesListe.length ? `<div class="list">${p.tachesListe.map((t) => taskRow(done.get(t.id) || t, o.busy?.has(t.id))).join("")}</div>` : `<p class="empty">Aucune tâche ouverte.</p>`}</section>
       <section class="sec"><h2>Derniers échanges <span class="count">${full ? p.echanges.length : ""}</span></h2>
         ${!full ? `<p class="empty">Chargement…</p>` : p.echanges.length ? `<div class="list">${p.echanges.map((e) => `<a class="row" href="${esc(e.url)}" target="_blank" rel="noopener">${fmtIcon(e.format)}<div class="rm"><div class="rt">${esc(e.titre)}</div><div class="rs">${esc(fd(e.date))}${e.format ? " · " + esc(e.format) : ""}</div></div>${ic("ext", "ic-sm")}</a>`).join("")}</div>` : `<p class="empty">Aucun échange au journal.</p>`}</section>
     </div>
-    ${full && p.syntheseAgent ? `<section class="sec"><h2>Synthèse agent</h2><p class="notes">${esc(p.syntheseAgent)}</p></section>` : ""}
-    ${full && (p.themesListe || []).length ? `<section class="sec"><h2>Timeline par initiative <span class="count">${p.themesListe.length}</span></h2>${timelineHTML(p)}</section>` : ""}
-    ${full && p.interlocuteurs.length ? `<section class="sec"><h2>Interlocuteurs</h2><div class="chips">${p.interlocuteurs.map((c) => `<a class="chip pers" href="#/contacts/${c.id}">${av({ nom: c.nom, type: "Personne" }, "xs")}${esc(c.nom)}</a>`).join("")}</div><p class="small muted" style="margin-top:8px">Contacts cités dans les derniers échanges et les tâches ouvertes.</p></section>` : ""}
+    ${full && p.syntheseAgent ? `<section class="sec"><h2>Synthèse agent${og("projets", "Synthèse agent")}</h2><p class="notes">${esc(p.syntheseAgent)}</p></section>` : ""}
+    ${full && (p.themesListe || []).length ? `<section class="sec"><h2>Timeline par initiative${og("projets", "timeline")} <span class="count">${p.themesListe.length}</span></h2>${timelineHTML(p)}</section>` : ""}
+    ${full && p.interlocuteurs.length ? `<section class="sec"><h2>Interlocuteurs${og("projets", "interlocuteurs")}</h2><div class="chips">${p.interlocuteurs.map((c) => `<a class="chip pers" href="#/contacts/${c.id}">${av({ nom: c.nom, type: "Personne" }, "xs")}${esc(c.nom)}</a>`).join("")}</div><p class="small muted" style="margin-top:8px">Contacts cités dans les derniers échanges et les tâches ouvertes.</p></section>` : ""}
     ${budgetSection(p)}
     ${infoSection(p, full)}
     <p class="small muted">${o.synchro ? syncSpan(o.synchro, true) : "Lu dans Notion"}${p.contexteIndisponible ? ". Page Contexte, opportunités et thèmes non lus : Notion ne répond pas" : ""}. Fiche modifiée le ${esc(new Date(p.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}${p.contexte?.modifie ? ` ; page Contexte modifiée le ${esc(new Date(p.contexte.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}` : ""}.</p>`);
@@ -151,6 +154,11 @@ function renderDrawer() {
 
 // ---------------- Budget et informations ----------------
 
+// Pastille d'origine des lignes Budget et Informations (clé : propriété Notion de la ligne).
+const OGK = { "Consommé": "Consommé (%)", "Heures": "Heures consommées", "Mois en cours": "Jours du mois", "Jours vendus": "Jours vendus", "Plafond": "Plafond (j)",
+  "Palier déjà alerté": "Palier budget alerté", "Début réel": "Date de début Réelle ", "Date prévisionnelle": "Date prévisionnelle", "Responsable": "Responsable",
+  "Hors périmètre ouverts": "Hors périmètre ouverts", "Dernière activité": "Dernière activité", "Météo hebdo": "Météo hebdo", "Projet Toggl": "Projet Toggl",
+  "Opportunités": "💶 Opportunités", "Initiatives": "Thèmes" };
 const n1 = (x) => String(Math.round(x * 10) / 10).replace(".", ",");
 const NR = (labels) => labels.length ? `<p class="nr">Non renseigné dans Notion : ${labels.join(", ")}.</p>` : "";
 
@@ -166,7 +174,7 @@ function budgetHint(b) {
 function budgetSection(p) {
   const b = p.budget;
   const rows = [], missing = [];
-  const line = (lab, val) => rows.push(`<dt>${lab}</dt><dd>${val}</dd>`);
+  const line = (lab, val, k = OGK[lab]) => rows.push(`<dt>${lab}${k ? og("projets", k) : ""}</dt><dd>${val}</dd>`);
   if (b.consommePct != null) {
     const which = b.ratioMois != null && (b.ratioHeures == null || b.ratioMois >= b.ratioHeures) ? "mois" : b.ratioHeures != null ? "heures" : null;
     line("Consommé", `<b class="${b.niveau === "crit" ? "neg" : b.niveau === "warn" ? "warn" : ""}">${pct(b.consommePct)}</b>${gauge(b)}<span class="small muted">Le plus élevé entre heures consommées ÷ heures vendues et jours du mois ÷ budget mensuel, écrit chaque lundi par Budget missions${which ? ` ; ici, ${which === "mois" ? "le budget mensuel" : "les heures"}` : ""}. Orange à 80 %, rouge à 100 %.</span>`);
@@ -188,7 +196,7 @@ function budgetSection(p) {
 
 function infoSection(p, full) {
   const rows = [], missing = [];
-  const line = (lab, val) => rows.push(`<dt>${lab}</dt><dd>${val}</dd>`);
+  const line = (lab, val, k = OGK[lab]) => rows.push(`<dt>${lab}${k ? og("projets", k) : ""}</dt><dd>${val}</dd>`);
   const d = (x) => esc(fd(x));
   if (p.dateDebut) line("Début réel", d(p.dateDebut)); else missing.push("date de début réelle");
   if (p.datePrevisionnelle) line("Date prévisionnelle", d(p.datePrevisionnelle)); else missing.push("date prévisionnelle");
@@ -258,13 +266,13 @@ function paramForm(p, o) {
   const locked = (n) => p.textesModifiables && p.textesModifiables[n] === false;
   const txt = (n, id, lab, rows) => !canEdit(n) ? "" : locked(n)
     ? `<div class="fld wide"><span class="lb">${lab}</span><p class="notes">${esc(v[n] || "")}</p><span class="small muted">Mise en forme dans Notion : à modifier dans Notion.</span></div>`
-    : `<div class="fld wide"><label for="${id}">${lab}</label><textarea id="${id}" data-param="${esc(n)}" rows="${rows}" maxlength="10000">${esc(v[n] || "")}</textarea></div>`;
+    : `<div class="fld wide"><label for="${id}">${lab}${og("projets", n)}</label><textarea id="${id}" data-param="${esc(n)}" rows="${rows}" maxlength="10000">${esc(v[n] || "")}</textarea></div>`;
   const meteo = S.options?.meteo || [];
   return `<form class="form paramform" id="pp-form" onsubmit="return false">
     <h2 class="wide" style="margin:0">Paramètres du projet</h2>
-    ${canEdit("Nom") ? `<div class="fld wide"><label for="pp-n">Nom dans Notion</label><input id="pp-n" data-param="Nom" value="${esc(v["Nom"] || "")}" required autocomplete="off"></div>` : ""}
-    ${canEdit("Météo") ? `<div class="fld"><label for="pp-m">Météo</label><select id="pp-m" data-param="Météo"><option value="">Non renseignée</option>${(meteo.includes(v["Météo"]) || !v["Météo"] ? meteo : [v["Météo"], ...meteo]).map((x) => `<option ${x === v["Météo"] ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></div>` : ""}
-    ${canEdit("Date prochain jalon") ? `<div class="fld"><label for="pp-dj">Date du jalon</label><input id="pp-dj" type="date" data-param="Date prochain jalon" value="${esc(String(v["Date prochain jalon"] || "").slice(0, 10))}"></div>` : ""}
+    ${canEdit("Nom") ? `<div class="fld wide"><label for="pp-n">Nom dans Notion${og("projets", "Nom")}</label><input id="pp-n" data-param="Nom" value="${esc(v["Nom"] || "")}" required autocomplete="off"></div>` : ""}
+    ${canEdit("Météo") ? `<div class="fld"><label for="pp-m">Météo${og("projets", "Météo")}</label><select id="pp-m" data-param="Météo"><option value="">Non renseignée</option>${(meteo.includes(v["Météo"]) || !v["Météo"] ? meteo : [v["Météo"], ...meteo]).map((x) => `<option ${x === v["Météo"] ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></div>` : ""}
+    ${canEdit("Date prochain jalon") ? `<div class="fld"><label for="pp-dj">Date du jalon${og("projets", "Date prochain jalon")}</label><input id="pp-dj" type="date" data-param="Date prochain jalon" value="${esc(String(v["Date prochain jalon"] || "").slice(0, 10))}"></div>` : ""}
     ${txt("Motif météo", "pp-motif", "Motif de la météo", 2)}
     ${txt("Prochain jalon", "pp-jal", "Prochain jalon", 2)}
     <p class="small muted wide">La météo et son motif sont aussi écrits par un automate (chaque nuit) : il peut les remplacer à son prochain passage. Heures par jour, TJ cible et couleur du projet n'existent pas dans Notion.</p>

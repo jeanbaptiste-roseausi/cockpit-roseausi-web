@@ -134,7 +134,8 @@ export function sideHTML({ notes = [], notesHint = "", notesMissing = "", ordre 
   const editable = notes.filter((n) => n.prop);
   const shown = notes.filter((n) => n.text || n.prop);
   const one = (n) => {
-    const lab = shown.length > 1 || n.label !== "Mes notes" ? `<label class="sn-l" ${n.prop ? `for="mn-${esc(nrm(n.prop).replace(/[^a-z0-9]+/g, "-"))}"` : ""}>${esc(n.label)}</label>` : "";
+    // n.og : pastille d'origine du champ (origines.js), à côté du libellé, ou seule au-dessus du texte.
+    const lab = shown.length > 1 || n.label !== "Mes notes" ? `<label class="sn-l" ${n.prop ? `for="mn-${esc(nrm(n.prop).replace(/[^a-z0-9]+/g, "-"))}"` : ""}>${esc(n.label)}${n.og || ""}</label>` : n.og ? `<div class="sn-l">${n.og}</div>` : "";
     if (n.prop && n.editable) {
       const id = "mn-" + nrm(n.prop).replace(/[^a-z0-9]+/g, "-");
       return `${lab}<textarea class="mn-edit" id="${esc(id)}" data-note="${esc(n.prop)}" data-orig="${esc(n.text || "")}" rows="5" maxlength="10000" placeholder="Ta zone libre. Les agents la lisent et n'y écrivent jamais."${lab ? "" : ` aria-label="${esc(n.label)}"`}>${esc(n.text || "")}</textarea>
