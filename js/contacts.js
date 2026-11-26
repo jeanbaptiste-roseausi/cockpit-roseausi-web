@@ -43,6 +43,8 @@ export const contactsView = {
 
 /** À relire au prochain affichage du mode « À créer » (après un rattachement ou une création). */
 export const invalidateACreer = () => { S.acreer = null; if (S.f.mode === "acreer") render(); };
+/** Relit la liste des contacts (après un geste fait ailleurs : piste créée, parcours changé). */
+export const refreshContacts = () => { if (S.items && !S.loading) load(true); };
 
 async function load(force = false) {
   if (S.loading) return;

@@ -69,6 +69,10 @@ export const pistesApi = {
   ofProjet: (id) => call("pistes", `?projet=${encodeURIComponent(id)}`),
   get: (id) => call("pistes", `/${id}`),
   update: (id, changes, avant) => call("pistes", `/${id}`, { method: "PATCH", body: { changes, ...(avant ? { avant } : {}) } }),
+  schema: () => call("pistes", "/schema"),
+  // Création (26/11/2026) : pistes proches d'abord, puis création confirmée.
+  doublons: (nom, contacts = []) => call("pistes", `/doublons?nom=${encodeURIComponent(nom)}&contacts=${encodeURIComponent(contacts.join(","))}`),
+  create: (values, { confirmerDoublon = false, parcours = true } = {}) => call("pistes", "", { method: "POST", body: { values, confirmerDoublon, parcours } }),
 };
 
 export const reseauApi = {

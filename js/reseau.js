@@ -54,6 +54,8 @@ function index() {
 }
 const C = (id) => IX.C.get(nid(id));
 const isMe = (id) => nid(id) === nid(S.moi);
+/** Liste à relire au prochain affichage (piste créée ailleurs, parcours changé par la fonction pistes). */
+export const invalidateReseau = () => { if (host && document.body.contains(host) && S.items) load(true); else S.items = null; };
 export const lab = (v) => (v == null ? "" : String(v).replace(/^[^\p{L}\p{N}]+/u, "").trim());
 const isOrg = (c) => c?.type === "Organisation";
 const isRes = (c) => c?.type === "Réseau";
@@ -120,7 +122,9 @@ const toOf = (c) => c.aRecommande.length;
 function parcGo(c) {
   const busy = S.busy.has(c.id), cur = lab(c.parcours);
   const nx = NEXT[cur] && optOf(NEXT[cur]);
-  const main = nx ? `<button class="btn sm" data-rznext="${c.id}" data-v="${esc(nx)}" ${busy ? "disabled" : ""} title="Passer à ${esc(pLab(nx))}">${esc(pLab(nx))} ›</button>` : "";
+  // Relais : bouton « Piste » (artefact), qui ouvre la création d'une piste préremplie et rattachée à ce contact.
+  const main = nx ? `<button class="btn sm" data-rznext="${c.id}" data-v="${esc(nx)}" ${busy ? "disabled" : ""} title="Passer à ${esc(pLab(nx))}">${esc(pLab(nx))} ›</button>`
+    : cur === "Relais" ? `<a class="btn sm ghost" href="#/pistes/new/contact/${c.id}" data-rzpiste="${c.id}" title="Créer une piste rattachée à ${esc(c.nom.trim())}">${ic("target", "ic-sm")}Piste</a>` : "";
   const grp = (l, ks) => { const opts = ks.map(optOf).filter(Boolean); return opts.length ? `<span class="pm-g">${l}</span>${opts.map((v) => `<button type="button" class="${c.parcours === v ? "on" : ""}" data-rzset="${c.id}" data-v="${esc(v)}" ${busy ? "disabled" : ""} ${c.parcours === v ? 'aria-current="true"' : ""}><i class="dot" style="background:${pCol(v)}"></i>${esc(pLab(v))}</button>`).join("")}` : ""; };
   return `<div class="pgo">${main}<details class="pmenu" data-rzmenu="${c.id}"><summary aria-label="Changer l'étape de ${esc(c.nom.trim())}" title="Autre étape">⋯</summary><div class="pm-pop">${grp("Étapes", P_ACT)}${grp("Sorties réussies", P_WIN)}${grp("Sorties", [...P_OUT, "Contact"])}</div></details></div>`;
 }

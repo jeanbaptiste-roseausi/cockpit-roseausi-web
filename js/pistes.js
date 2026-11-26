@@ -1,10 +1,11 @@
 // Vue « Prospection » (lot 2) : pilotage (entonnoir par étape et par origine, relances dues, pistes sans
 // prochaine action, effort commercial 2027), tableau par étape avec glisser-déposer, liste, et fiche piste
 // plein écran. Les chiffres viennent de la fonction pistes : la pondération est celle des formules Notion.
-import { pistesApi, todoApi } from "./api.js";
-import { contactIndex, invalidateACreer } from "./contacts.js";
+import { pistesApi, todoApi, projetsIndex } from "./api.js";
+import { contactIndex, invalidateACreer, refreshContacts } from "./contacts.js";
+import { invalidateReseau } from "./reseau.js";
 import { setTaskEtat } from "./todo.js";
-import { $, esc, ic, nrm, fd, due, toast, toastUndo, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, ficheTabs, fmtIcon, taSpan, chip, syncOf, syncSpan, staleBanner, initials, setNoteSaver } from "./ui.js";
+import { $, esc, ic, nrm, fd, due, toast, toastUndo, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, ficheTabs, fmtIcon, taSpan, chip, syncOf, syncSpan, staleBanner, initials, setNoteSaver, swapHTML } from "./ui.js";
 import { og, ogLegend } from "./origines.js";
 import { jetonsHTML } from "./jetons.js";
 
@@ -27,6 +28,8 @@ export const pistesView = {
     if (!S.items) await load();
   },
   open: openPiste,
+  // #/pistes/new (bouton « + Piste ») et #/pistes/new/contact/<id> (bouton « Piste » du parcours réseau).
+  openNew: (kind, id) => openNewPiste(kind === "contact" ? id : null),
   close: () => { S.open = null; },
   reload: () => load(),
 };
@@ -129,7 +132,7 @@ function render() {
     <label class="sr" for="pi-prio">Priorité</label><select class="sel" id="pi-prio" data-pisel="prio"><option value="">Toutes priorités</option>${[3, 2, 1, 0].map((n) => `<option value="${n}" ${f.prio === String(n) ? "selected" : ""}>${n ? "★".repeat(n) : "Froide"}</option>`).join("")}</select>
     <label class="sr" for="pi-src">Origine</label><select class="sel" id="pi-src" data-pisel="src"><option value="">Toutes origines</option>${S.origines.map((t) => `<option value="${esc(t)}" ${f.src === t ? "selected" : ""}>${esc(lab(t))}</option>`).join("")}</select>
     <label class="sr" for="pi-q">Filtrer les pistes</label><input class="inp grow" id="pi-q" type="search" placeholder="Filtrer par nom, contact, action…" value="${esc(f.q)}" autocomplete="off">`;
-  const head = `<div class="bar"><div class="seg" role="group" aria-label="Affichage">${seg("mode", "pilotage", ic("layers", "ic-sm") + " Pilotage")}${seg("mode", "tableau", ic("board", "ic-sm") + " Tableau")}${seg("mode", "liste", ic("list", "ic-sm") + " Liste")}</div>${filters}</div>`;
+  const head = `<div class="bar"><a class="btn sm pri" href="#/pistes/new">${ic("plus", "ic-sm")}Piste</a><div class="seg" role="group" aria-label="Affichage">${seg("mode", "pilotage", ic("layers", "ic-sm") + " Pilotage")}${seg("mode", "tableau", ic("board", "ic-sm") + " Tableau")}${seg("mode", "liste", ic("list", "ic-sm") + " Liste")}</div>${filters}</div>`;
   let body;
   if (S.error) body = `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(S.error)} <button class="lnk" data-act="reload">Réessayer</button></span></div>`;
   else if (!S.items) body = `<div class="card"><p class="empty">Chargement des pistes depuis Notion…</p></div>`;
@@ -273,6 +276,7 @@ async function openPiste(id) {
 function renderDrawer() {
   const o = S.open;
   if (!o || !drawerHost || !ownsDrawer("pistes")) return;
+  if (o.isNew) { renderNew(o); return; }
   const p = o.p;
   ficheTop({ kind: "Piste", url: p?.url || null, side: true });
   // Mes notes de la piste : modifiables ici comme pour les autres fiches (même garde-fous), si Notion les donne sans mise en forme.
@@ -309,6 +313,123 @@ function renderDrawer() {
     ${ficheTabs(secs, cur, "data-pisec")}
     <section class="cbody" aria-label="${SECS[cur]}">${body}</section>
     <p class="small muted" style="margin-top:14px">${o.synchro ? syncSpan(o.synchro, true) : "Lu dans Notion"}. Fiche modifiée dans Notion le ${esc(new Date(p.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}${og("pistes", "Modifié le")}.</p>`;
+}
+
+// ---------------- Nouvelle piste (26/11/2026) ----------------
+// Reprise du formulaire de l'artefact (new-piste) : nom, étape, priorité, origine, contacts, projet. La prochaine
+// action n'est pas écrite sur la piste (règle du 26/11) : « Première action » crée une tâche TO DO liée.
+// Les pistes proches sont cherchées pendant la saisie et redemandées par la fonction avant de créer.
+
+async function openNewPiste(contactId) {
+  S.open = { id: "new", isNew: true, contact: contactId, f: { nom: "", etape: "", prio: "", tag: "", contacts: contactId ? [contactId] : [], projets: [], action: "", ech: "", parcours: true },
+    schema: null, contactsList: null, projets: null, doublons: null, force: false, busy: false, err: null };
+  const o = S.open;
+  setDrawerOwner("pistes");
+  renderDrawer();
+  const [sc, cl, pj] = await Promise.allSettled([pistesApi.schema(), contactIndex(), projetsIndex()]);
+  if (S.open !== o) return;
+  if (sc.status === "fulfilled") o.schema = sc.value; else o.err = sc.reason?.message || "Champs de la base Pistes illisibles.";
+  o.contactsList = cl.status === "fulfilled" ? cl.value : [];
+  o.projets = pj.status === "fulfilled" ? pj.value : [];
+  // Depuis le parcours réseau : piste préremplie au nom du contact (et de son organisation), origine Réseau.
+  if (contactId) {
+    const c = o.contactsList.find((x) => x.id === contactId);
+    const orgC = o.contactsList.find((x) => (c?.rattacheA || []).includes(x.id) && x.type === "Organisation");
+    const org = orgC ? String(orgC.nom).trim() : "";
+    if (c && !o.f.nom) o.f.nom = [String(c.nom).trim(), org].filter(Boolean).join(" - ");
+  }
+  if (o.schema) {
+    o.f.etape = o.f.etape || o.schema.etapes?.[0] || "";
+    if (!o.f.tag) o.f.tag = (o.schema.origines || []).find((t) => lab(t) === "Réseau") || "";
+  }
+  renderDrawer();
+  if (o.f.nom) watchPisteDoublons(o, 0);
+}
+
+const cName = (o, id) => String((o.contactsList || []).find((c) => c.id === id)?.nom ?? "Contact").trim();
+const pName = (o, id) => String((o.projets || []).find((p) => p.id === id)?.nom ?? "Projet").trim();
+
+function renderNew(o) {
+  ficheTop({ kind: "Nouvelle piste", url: null, side: false });
+  const f = o.f, sc = o.schema, dis = o.busy ? "disabled" : "";
+  const opt = (list, cur, empty) => `${empty != null ? `<option value="">${esc(empty)}</option>` : ""}${(list || []).map((x) => `<option value="${esc(x)}" ${x === cur ? "selected" : ""}>${esc(lab(x))}</option>`).join("")}`;
+  const d = o.doublons;
+  const dbl = d && d.length ? `<div class="dbl wide"><b>${d.length} piste${d.length > 1 ? "s" : ""} proche${d.length > 1 ? "s" : ""} dans Notion</b><p class="small" style="margin:4px 0 8px">Vérifie avant de créer une seconde piste.</p>
+      <div class="list">${d.map((x) => `<div class="row"><div class="rm"><div class="rt">${esc(x.nom)}</div><div class="rs">${esc([lab(x.etape), lab(x.issue), x.raison].filter(Boolean).join(" · "))}</div></div>
+        <div class="rr"><a class="btn sm" href="#/pistes/${x.id}">Ouvrir</a></div></div>`).join("")}</div>
+      ${o.force ? `<p class="small" style="margin-top:8px">Aucune ne convient : <button class="btn sm" type="button" data-npact="force" ${dis}>Créer quand même</button></p>` : ""}</div>` : "";
+  const pers = f.contacts.filter((id) => { const c = (o.contactsList || []).find((x) => x.id === id); return c && (c.type === "Personne" || !c.type); });
+  swapHTML(drawerHost, `
+    <div class="dh"><span class="ifmt">${ic("target")}</span><div style="flex:1;min-width:0"><h1>Nouvelle piste</h1>
+      <div class="sub">Créée dans la base Pistes/Opportunités de Notion${o.contact ? `, rattachée à <a href="#/contacts/${o.contact}">${esc(cName(o, o.contact))}</a>` : ""}</div></div></div>
+    ${o.err ? `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(o.err)}</span></div>` : ""}
+    ${!sc ? `<p class="empty">${o.err ? "" : "Chargement des champs…"}</p>` : `<form class="form" id="np-form" onsubmit="return false">
+      <div class="fld wide"><label for="np-n">Nom</label><input id="np-n" data-np="nom" value="${esc(f.nom)}" required autocomplete="off" placeholder="Structure ou personne, sujet" ${dis}></div>
+      <div class="fld"><label for="np-st">Étape${og("pistes", "Status")}</label><select class="sel" id="np-st" data-np="etape" ${dis}>${opt(sc.etapes, f.etape)}</select></div>
+      <div class="fld"><label for="np-prio">Priorité${og("pistes", "Prio")}</label><select class="sel" id="np-prio" data-np="prio" ${dis}>${opt(sc.editable?.Prio?.options, f.prio, "Non renseignée")}</select></div>
+      <div class="fld"><label for="np-tag">Origine${og("pistes", "Tags")}</label><select class="sel" id="np-tag" data-np="tag" ${dis}>${opt(sc.origines, f.tag, "Non renseignée")}</select></div>
+      <div class="fld wide"><span class="lb">Contacts${og("pistes", "👱‍♀️ Contacts")}</span>${jetonsHTML({
+        id: "np-c", label: "Contacts de la nouvelle piste", placeholder: "Ajouter un contact", busy: o.busy,
+        items: f.contacts.map((id) => ({ id, nom: cName(o, id), href: `#/contacts/${id}` })),
+        choices: (o.contactsList || []).map((c) => ({ id: c.id, nom: String(c.nom).trim(), sub: c.type && c.type !== "Personne" ? c.type : "" })),
+        onAdd: (id) => { if (f.contacts.length < 10 && !f.contacts.includes(id)) f.contacts.push(id); renderDrawer(); watchPisteDoublons(o); },
+        onRemove: (id) => { f.contacts = f.contacts.filter((x) => x !== id); renderDrawer(); watchPisteDoublons(o); },
+      })}</div>
+      <div class="fld wide"><span class="lb">Projet${og("pistes", "Projets")}</span>${jetonsHTML({
+        id: "np-pj", label: "Projet de la nouvelle piste", placeholder: "Rattacher à un projet (facultatif)", busy: o.busy,
+        items: f.projets.map((id) => ({ id, nom: pName(o, id), href: `#/projets/${id}`, icon: "folder", cls: "pj" })),
+        choices: (o.projets || []).filter((p) => p.etat !== "Annulé" && p.etat !== "Terminé").map((p) => ({ id: p.id, nom: p.nom, sub: p.etat === "Prospect" ? "prospect" : "" })),
+        onAdd: (id) => { if (f.projets.length < 5 && !f.projets.includes(id)) f.projets.push(id); renderDrawer(); },
+        onRemove: (id) => { f.projets = f.projets.filter((x) => x !== id); renderDrawer(); },
+      })}</div>
+      <div class="fld"><label for="np-a">Première action (facultatif)</label><input id="np-a" data-np="action" value="${esc(f.action)}" autocomplete="off" placeholder="Appeler, envoyer une proposition…" ${dis}></div>
+      <div class="fld"><label for="np-e">Échéance</label><input id="np-e" type="date" data-np="ech" value="${esc(f.ech)}" ${dis}></div>
+      <p class="small muted wide" style="margin-top:-4px">La première action est créée comme tâche TO DO liée à la piste : elle devient sa prochaine action.</p>
+      ${pers.length ? `<label class="chk-l wide"><input type="checkbox" data-np="parcours" ${f.parcours ? "checked" : ""} ${dis}>Passer ${pers.length > 1 ? "ces personnes" : esc(cName(o, pers[0]))} à « Opportunité créée » dans le parcours réseau (si ${pers.length > 1 ? "elles le suivent" : "elle le suit"})</label>` : ""}
+      ${dbl}
+      <div class="mfoot wide"><a class="btn sm" href="${o.contact ? `#/contacts/${o.contact}` : "#/pistes"}">Annuler</a><button class="btn sm pri" type="button" data-npact="create" ${dis}>${o.busy ? "Création dans Notion…" : "Créer la piste"}</button></div></form>
+      <p class="small muted" style="margin-top:10px">Piste créée « en cours », nature « Piste ». Seules les propriétés et options existantes de Notion sont utilisées. Les pistes proches (nom, ou piste ouverte avec le même contact) sont cherchées pendant la saisie.</p>`}`);
+}
+
+let npTimer = null;
+function watchPisteDoublons(o, delay = 350) {
+  clearTimeout(npTimer);
+  npTimer = setTimeout(async () => {
+    const nom = o.f.nom.trim(), cs = [...o.f.contacts];
+    if (nom.length < 3 && !cs.length) { o.doublons = null; renderDrawer(); return; }
+    try {
+      const r = await pistesApi.doublons(nom, cs);
+      if (S.open === o && o.f.nom.trim() === nom && o.f.contacts.join() === cs.join()) { o.doublons = r.doublons || []; o.force = false; renderDrawer(); }
+    } catch { /* recherche indisponible : la création la refera */ }
+  }, delay);
+}
+
+async function createPiste(o, force) {
+  const f = o.f;
+  if (!f.nom.trim()) { o.err = "Donne un nom à la piste."; renderDrawer(); return; }
+  if (f.ech && !f.action.trim()) { o.err = "Donne un intitulé à la première action, ou retire l'échéance."; renderDrawer(); return; }
+  const values = { "Nom": f.nom.trim(), "Status": f.etape || undefined, ...(f.prio ? { "Prio": f.prio } : {}), ...(f.tag ? { "Tags": [f.tag] } : {}),
+    "👱‍♀️ Contacts": f.contacts, "Projets": f.projets };
+  o.busy = true; o.err = null; renderDrawer();
+  let r;
+  try { r = await pistesApi.create(values, { confirmerDoublon: force, parcours: f.parcours }); }
+  catch (e) {
+    o.busy = false;
+    if (e.code === "doublon") { o.doublons = e.details?.doublons || o.doublons || []; o.force = true; o.err = e.message; }
+    else o.err = e.message;
+    renderDrawer(); return;
+  }
+  const id = r.piste.id, msgs = [`Piste « ${r.piste.nom} » créée dans Notion.`];
+  if (r.parcours?.length) msgs.push(`${r.parcours.map((x) => x.nom).join(", ")} : parcours passé à « Opportunité créée ».`);
+  if (r.parcoursErreur) msgs.push(r.parcoursErreur);
+  if (f.action.trim()) {
+    try { await todoApi.create({ "Nom": f.action.trim(), ...(f.ech ? { "Échéance": f.ech } : {}), "Pistes/Opportunités": [id], ...(f.contacts.length ? { "👱‍♀️ Contacts": f.contacts.slice(0, 1) } : {}) }); msgs.push("Première action créée dans TO DO."); }
+    catch (e) { msgs.push(`La première action n'a pas pu être créée : ${e.message} Planifie-la depuis la fiche.`); }
+  }
+  toast(msgs.join(" "), r.parcoursErreur ? "err" : "");
+  invalidateReseau(); refreshContacts(); invalidateACreer();
+  load(true);
+  location.hash = `#/pistes/${id}`;
 }
 
 function gagneBox(o, p) {
@@ -457,8 +578,28 @@ export function bindPistesEvents(root) {
 }
 
 export function bindPistesDrawerEvents(root) {
+  // Nouvelle piste : champs lus à la saisie, pistes proches cherchées quand le nom change.
+  const newOpen = () => ownsDrawer("pistes") && S.open?.isNew ? S.open : null;
+  root.addEventListener("input", (e) => {
+    const o = newOpen(), k = e.target.dataset?.np; if (!o || !k || k === "parcours") return;
+    o.f[k] = e.target.value;
+    if (k === "nom") watchPisteDoublons(o);
+  });
+  root.addEventListener("change", (e) => {
+    const o = newOpen(), k = e.target.dataset?.np; if (!o || !k) return;
+    o.f[k] = k === "parcours" ? e.target.checked : e.target.value;
+  });
   root.addEventListener("click", (e) => {
-    if (!ownsDrawer("pistes") || !S.open) return;
+    const o = newOpen(); if (!o) return;
+    const a = e.target.closest("[data-npact]")?.dataset.npact;
+    if (a === "create" || a === "force") createPiste(o, a === "force");
+  });
+  root.addEventListener("keydown", (e) => {
+    const o = newOpen(); if (!o || e.key !== "Enter" || !e.target.dataset?.np || e.target.tagName !== "INPUT" || e.target.type === "checkbox") return;
+    e.preventDefault(); createPiste(o, false);
+  });
+  root.addEventListener("click", (e) => {
+    if (!ownsDrawer("pistes") || !S.open || S.open.isNew) return;
     const o = S.open;
     const sec = e.target.closest("[data-pisec]");
     if (sec) { o.sec = sec.dataset.pisec; if (o.sec === "contacts") loadContacts(); renderDrawer(); root.scrollTop = 0; return; }
