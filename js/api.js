@@ -84,6 +84,10 @@ export const agentApi = {
   envoyer: (type, id, typeMessage, texte) => call("agent", `/${type}/${id}`, { method: "POST", body: { type: typeMessage, texte } }),
   annuler: (n) => call("agent", `/action/${n}/annuler`, { method: "POST", body: {} }),
   appliquer: (n) => call("agent", `/action/${n}/appliquer`, { method: "POST", body: {} }),
+  // Lot 3 bis : agent global (un fil pour tous les écrans) et gestes groupés.
+  filGlobal: () => call("agent", "/ecran"),
+  envoyerGlobal: (typeMessage, texte, ecran) => call("agent", "/ecran", { method: "POST", body: { type: typeMessage, texte, ecran } }),
+  groupe: (n, geste, body = {}) => call("agent", `/groupe/${n}/${geste}`, { method: "POST", body }),
 };
 
 // Miroir de Notion (lot M) : relecture des pages modifiées dans Notion, à la demande (Actualiser).

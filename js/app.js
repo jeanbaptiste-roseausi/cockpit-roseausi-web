@@ -14,7 +14,7 @@ import { journalView, bindJournalEvents, bindJournalDrawerEvents } from "./journ
 import { mountSearch } from "./search.js";
 import { $, esc, ic, tickSync, toast, bindNotes } from "./ui.js";
 import { miroirApi, todoApi, pistesApi } from "./api.js";
-import { bindAgent } from "./agent.js";
+import { bindAgent, basculerAgent, allerAuFil } from "./agent.js";
 
 // Vues disponibles. Menu aligné sur l'artefact « Pilotage RoseauSI », version 1795691780-62c5
 // (poc/pilotage-2026-11-26.html) : Ma journée, Vue d'ensemble, Pistes, Contacts, Journal, Projets, Actions.
@@ -63,7 +63,7 @@ function shell() {
   const soon = (v) => `<li><button disabled title="Prochain jalon">${ic(v.icon)}<span class="nl">${esc(v.label)}</span><span class="soon">bientôt</span></button></li>`;
   $("#app").innerHTML = `
     <aside id="side">
-      <div class="brand"><div class="wm">RoseauSI</div><div class="brand-sub">Cockpit de pilotage</div><span class="poc-tag">Lot 5a</span></div>
+      <div class="brand"><div class="wm">RoseauSI</div><div class="brand-sub">Cockpit de pilotage</div><span class="poc-tag">Lot 3 bis</span></div>
       <ul class="nav">${VIEWS.map((v) => nav(v, v === current)).join("")}${SOON.map(soon).join("")}</ul>
       <div class="side-foot"><span>Connecté : <b>${esc(session?.user?.email)}</b></span>
         <div class="side-row"><button class="side-btn" data-act="reload">${ic("refresh", "ic-sm")}Actualiser</button><button class="side-btn" data-act="logout">${ic("logout", "ic-sm")}Déconnexion</button></div></div>
@@ -71,6 +71,7 @@ function shell() {
     <div class="main-col">
       <div class="top"><span class="mbrand">RoseauSI</span><h1>${esc(current.label)}</h1>
         <div class="search" id="search"></div>
+        <button class="btn sm agbtn" data-act="agent" aria-pressed="false" title="Panneau Agent">${ic("agent", "ic-sm")}<span class="nl">Agent</span></button>
         <button class="iconbtn mob-only" data-act="opensearch" aria-label="Rechercher">${ic("search")}</button>
         <button class="iconbtn mob-only" data-act="reload" aria-label="Actualiser">${ic("refresh")}</button>
         <button class="iconbtn mob-only" data-act="logout" aria-label="Déconnexion">${ic("logout")}</button></div>
@@ -123,6 +124,8 @@ function route() {
     if (id === "new" && v.openNew) openDrawer(() => v.openNew(extra, extra2));
     else openDrawer(() => v.open(id));
   } else closeDrawer(false);
+  // Lot 3 bis : le panneau Agent suit l'écran ouvert.
+  window.dispatchEvent(new CustomEvent("cockpit:vue"));
 }
 
 /** Pose la fiche sur la zone de contenu : le menu de gauche reste visible sur ordinateur. */
@@ -138,6 +141,8 @@ function drFit() {
   for (const [k, v] of Object.entries({ l, r, t, b })) d.style.setProperty(`--dr-${k}`, v + "px");
 }
 window.addEventListener("resize", drFit);
+// Lot 3 bis : le panneau Agent ancré change la largeur de la zone de contenu.
+window.addEventListener("cockpit:agent-place", () => { if ($("#drawer").classList.contains("on")) drFit(); });
 
 function openDrawer(load) {
   const wasOpen = $("#drawer").classList.contains("on");
@@ -196,8 +201,11 @@ document.addEventListener("click", (e) => {
   if (act === "reload") actualiser();
   if (act === "close") closeDrawer();
   if (act === "back") history.back();
-  // Fiche étroite (téléphone) : le panneau Mes notes et agent est sous la fiche, un geste y mène.
-  if (act === "drside") $("#dr-side").scrollIntoView({ behavior: "smooth", block: "start" });
+  if (act === "agent") basculerAgent();
+  // Fiche étroite (téléphone) : le panneau Mes notes et agent est sous la fiche, un geste y mène. Lot 3 bis :
+  // on fait défiler la zone de la fiche elle-même (scrollIntoView faisait aussi défiler la fiche fixe dans son
+  // cadre, d'où l'en-tête perdu et la bande blanche), ou on ouvre la fenêtre de l'agent si elle est détachée.
+  if (act === "drside") allerAuFil();
   if (act === "drfiche") { $("#dr-main").scrollTo({ top: 0, behavior: "smooth" }); $("#dr-body").scrollTo({ top: 0, behavior: "smooth" }); }
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#drawer").classList.contains("on")) closeDrawer(); });

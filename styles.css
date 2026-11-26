@@ -815,3 +815,65 @@ a.arow:hover .an { color: var(--teal-strong); }
 #toast.undo { pointer-events: auto; display: flex; align-items: center; gap: 14px; width: max-content; }
 #toast.undo button { appearance: none; border: 0; background: transparent; color: var(--on-teal); font: inherit; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; padding: 4px 2px; }
 .tok-x:disabled { opacity: .45; cursor: default; }
+/* ---------------- Lot 3 bis : correctif téléphone, panneau Agent global, gestes groupés ---------------- */
+/* Défaut du 26/11 (téléphone) : la fiche fixe était elle-même défilable (overflow: hidden reste défilable par
+   programme) et son conteneur de taille (container) servait de bloc de référence aux éléments en position
+   absolue de la fiche, qui la débordaient. Le geste « Agent » (scrollIntoView) et la mise au point de la zone de
+   saisie faisaient alors défiler la fiche dans son cadre : en-tête sorti de l'écran, bas de la fiche vide (blanc
+   en mode clair). La fiche coupe désormais sans défiler, et la zone qui défile porte ses éléments positionnés. */
+#drawer { overflow: clip; }
+.dr-main { position: relative; }
+@container drawer (max-width: 860px) {
+  #drawer.has-side .dr-side { flex: none; }
+  #drawer.has-side .side-in { flex: none; }
+}
+
+/* Bouton Agent de l'en-tête de chaque écran */
+.agbtn { flex: none; }
+.agbtn[aria-pressed="true"] { background: var(--teal-strong); border-color: var(--teal-strong); color: var(--on-teal); }
+.agbtn[aria-pressed="true"] .ic { color: var(--on-teal); }
+@media (max-width: 900px) { .agbtn { width: 40px; height: 40px; padding: 0; border-radius: var(--r-panel); } .agbtn .nl { display: none; } }
+
+/* Panneau #agp : ancré à droite, fenêtre flottante, ou plein écran (téléphone) */
+:root { --agp-w: clamp(340px, 28vw, 440px); }
+.agp { position: fixed; z-index: 70; display: flex; flex-direction: column; background: var(--surface-alt); border: 1px solid var(--line); border-radius: var(--r-card); box-shadow: var(--shadow); min-width: 0; }
+.agp.ancre { top: 16px; bottom: 16px; right: max(16px, env(safe-area-inset-right)); width: var(--agp-w); }
+.agp.flottant { resize: both; overflow: hidden; min-width: 320px; min-height: 300px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); box-shadow: 0 18px 48px rgba(0, 0, 0, .22); }
+.agp.plein { inset: 0; border: 0; border-radius: 0; z-index: 80; padding-top: env(safe-area-inset-top); transition: transform .18s ease; }
+.agp.drag { transition: none; user-select: none; }
+body.agp-ancre .app { padding-right: calc(var(--agp-w) + 32px); }
+.agp-h { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 14px; border-bottom: 1px solid var(--line); background: var(--surface); border-radius: var(--r-card) var(--r-card) 0 0; flex: none; position: relative; }
+.agp-h b { font: 600 17px var(--font-head); color: var(--ink); }
+.agp-h > .ic { color: var(--teal); }
+.agp-ctx { flex: 1; min-width: 0; color: var(--ink-subtle); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agp.flottant .agp-h { cursor: grab; touch-action: none; }
+.agp.flottant.drag .agp-h { cursor: grabbing; }
+.agp-grip { display: none; }
+.agp.plein .agp-h { border-radius: 0; touch-action: none; padding-top: 18px; }
+.agp.plein .agp-grip { display: block; position: absolute; left: 50%; top: 6px; width: 44px; height: 5px; margin-left: -22px; border-radius: 3px; background: var(--line-strong); }
+.agp-b { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); overflow: auto; overscroll-behavior: contain; }
+.agp-b .ag-list { max-height: none; flex: 1; min-height: 120px; }
+.agp.flottant::after { content: ""; position: absolute; right: 3px; bottom: 3px; width: 10px; height: 10px; border-right: 2px solid var(--line-strong); border-bottom: 2px solid var(--line-strong); border-radius: 0 0 3px 0; pointer-events: none; }
+.ag-top { align-items: center; }
+.ag-mode { margin-left: auto; }
+.ag-ailleurs { min-height: 0; }
+.ag-ailleurs > div { display: flex; flex-direction: column; gap: 8px; }
+.ag-ailleurs-b { display: flex; gap: 6px; flex-wrap: wrap; }
+.ag-m.bot.wide { max-width: 100%; align-self: stretch; }
+.ag-prog { font-weight: 700; color: var(--teal-strong); }
+
+/* Geste groupé : liste des changements, cases à cocher, Appliquer, Tout annuler */
+.ag-grp { border: 1.5px solid var(--teal); border-radius: var(--r-panel); background: var(--teal-25); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.ag-grp-h { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ag-grp-h b { font-size: 14px; margin-right: auto; }
+.ag-grp-h .ic { color: var(--teal); }
+.ag-grp-aide { color: var(--ink-muted); }
+.ag-gls { list-style: none; margin: 0; padding: 0 !important; display: flex; flex-direction: column; gap: 4px; max-height: 340px; overflow: auto; overscroll-behavior: contain; }
+.agp-b .ag-gls { max-height: none; }
+.ag-gl { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; padding: 6px 4px; border-top: 1px dashed var(--line); }
+.ag-gl:first-child { border-top: 0; }
+.ag-gl .ag-act-t { flex: 1 1 160px; }
+.ag-gl.s-ecartee .ag-act-t, .ag-gl.s-annulee .ag-act-t, .ag-gl.s-refusee .ag-act-t { color: var(--ink-muted); }
+.ag-ck { width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--teal-strong); flex: none; cursor: pointer; }
+.ag-grp-f { display: flex; flex-wrap: wrap; gap: 6px; }
+@media (max-width: 900px) { .ag-gl { padding: 8px 2px; } .ag-ck { width: 24px; height: 24px; } }
