@@ -347,8 +347,8 @@ body.dr-open .main-col { visibility: hidden; }
 .col.over { background: var(--teal-50); outline: 2px dashed var(--teal); }
 .col-h { display: flex; align-items: center; gap: 8px; padding: 2px 4px 4px; font: 600 15px var(--font-head); color: var(--teal); }
 .col-h .n { margin-left: auto; color: var(--ink-subtle); font: 700 12px var(--font-body); }
-.pcard { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-panel); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: inherit; min-width: 0; }
-.pcard:hover { border-color: var(--teal); }
+.pilink { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-panel); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: inherit; min-width: 0; }
+.pilink:hover { border-color: var(--teal); }
 .pcard.dragging { opacity: .45; }
 .acard .an { font-weight: 700; font-size: 14.5px; line-height: 1.35; overflow-wrap: anywhere; }
 .acard .chips:empty, .acard-f:empty { display: none; }
@@ -531,3 +531,10 @@ a.tl-act, a.tl-int { display: block; }
 .clegend i.dia { width: 9px; height: 9px; transform: rotate(45deg); border: 2px solid var(--teal-strong); border-radius: 2px; }
 .clegend i.dot2 { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-muted); }
 @media (max-width: 600px) { .tl-row { grid-template-columns: minmax(84px, 32%) minmax(0, 1fr); gap: 6px; } }
+
+/* ---- Lot 2 (suite) : contacts « À créer », pistes dans les fiches Contact et Tâche ---- */
+.av.k-acreer { background: var(--surface); color: var(--ink-muted); border: 1.5px dashed var(--line-dashed); }
+.pilinks { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.pilink { display: flex; flex-direction: column; gap: 4px; border: 1.5px solid var(--line); border-radius: var(--r-panel); padding: 10px 12px; text-decoration: none; color: inherit; min-width: 0; }
+.pilink:hover { border-color: var(--teal); }
+.pilink b { overflow-wrap: anywhere; }

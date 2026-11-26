@@ -1,12 +1,13 @@
 // Vue « Contacts » : liste des contacts actifs et fiche modifiable.
 // Chaque vue du cockpit expose la même interface : { id, label, icon, render(), open(id) }.
-import { contactsApi, todoApi, projetsIndex } from "./api.js";
+import { contactsApi, todoApi, projetsIndex, pistesApi } from "./api.js";
 import { $, esc, ic, av, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, ficheTabs, parcChip, taSpan, syncOf, syncSpan, staleBanner, natureChip, setNoteSaver , swapHTML } from "./ui.js";
 
 const S = {
   items: null, schema: null, loading: false, error: null, fetchedAt: null, synchro: null,
   f: { q: "", type: "tous", parcours: "", mode: "liste", sort: "liens" },
-  open: null, // fiche ouverte : { id, contact, values, saving: Set, sec }
+  open: null, // fiche ouverte : { id, contact, values, saving: Set, sec, pistes }
+  acreer: null, // lot 2 (suite) : contacts « À créer » et pistes actives sans contact, lus à la demande
 };
 
 const FIELD_ORDER = [
@@ -74,7 +75,7 @@ function render() {
   const mseg = (v, lab) => `<button class="${f.mode === v ? "on" : ""}" data-cmode="${v}" aria-pressed="${f.mode === v}">${lab}</button>`;
   const head = `
     <div class="bar">
-      <div class="seg" role="group" aria-label="Affichage">${mseg("liste", ic("list", "ic-sm") + " Liste")}${mseg("cartes", ic("grid", "ic-sm") + " Cartes")}</div>
+      <div class="seg" role="group" aria-label="Affichage">${mseg("liste", ic("list", "ic-sm") + " Liste")}${mseg("cartes", ic("grid", "ic-sm") + " Cartes")}${mseg("acreer", ic("plus", "ic-sm") + " À créer")}</div>
       <div class="seg" role="group" aria-label="Type de fiche">${seg("tous", "Tous")}${seg("Personne", "Personnes")}${seg("Organisation", "Organisations")}${seg("Réseau", "Réseaux")}</div>
       <label class="sr" for="cf-p">Statut</label>
       <select class="sel" id="cf-p"><option value="">Tous statuts</option>${opts.map((o) => `<option ${f.parcours === o ? "selected" : ""}>${esc(o)}</option>`).join("")}<option value="__none" ${f.parcours === "__none" ? "selected" : ""}>Sans statut</option></select>
@@ -84,6 +85,7 @@ function render() {
 
   let body;
   if (S.error) body = `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(S.error)} <button class="lnk" data-act="reload">Réessayer</button></span></div>`;
+  else if (f.mode === "acreer") body = aCreerHTML();
   else if (!S.items) body = `<div class="card"><p class="empty">Chargement des contacts depuis Notion…</p></div>`;
   else {
     const list = filtered();
@@ -98,8 +100,8 @@ function render() {
   if (active === "cf-q") { const i = $("#cf-q", host); i.focus(); try { i.setSelectionRange(pos, pos); } catch { /* */ } }
 }
 
-// Ligne (POC, contactRow) : parcours, actions ouvertes, mail, date du dernier échange direct.
-// Les pistes en cours s'ajouteront avec les pistes (lot 2).
+// Ligne (POC, contactRow) : parcours, pistes en cours (lot 2, suite), actions ouvertes, mail, dernier échange direct.
+const pisChip = (c) => c.pistesEnCours ? `<span class="chip st-encours">${c.pistesEnCours} piste${c.pistesEnCours > 1 ? "s" : ""}</span>` : "";
 const actChip = (c) => c.tachesOuvertes ? `<span class="chip">${c.tachesOuvertes} action${c.tachesOuvertes > 1 ? "s" : ""}</span>` : "";
 const mailChip = (c) => c.email ? `<span class="chip pl" title="Mail">${ic("mail", "ic-sm")}${esc(c.email)}</span>` : "";
 function exSpan(c) {
@@ -110,14 +112,14 @@ function exSpan(c) {
 function row(c) {
   return `<a class="row" href="#/contacts/${c.id}">${av(c)}
     <div class="rm"><div class="rt">${esc(c.nom)}</div><div class="rs">${esc(subOf(c)) || "&nbsp;"}</div>
-      ${((x) => x ? `<div class="chips" style="margin-top:4px">${x}</div>` : "")(`${parcChip(c.parcours)}${natureChip(c.nature)}${actChip(c)}${c.prio === "P1" ? chip("P1", "red") : c.prio ? chip(c.prio) : ""}${mailChip(c)}`)}
+      ${((x) => x ? `<div class="chips" style="margin-top:4px">${x}</div>` : "")(`${parcChip(c.parcours)}${natureChip(c.nature)}${pisChip(c)}${actChip(c)}${c.prio === "P1" ? chip("P1", "red") : c.prio ? chip(c.prio) : ""}${mailChip(c)}`)}
       ${c.prochaineAction ? `<div class="rs clamp2">${ic("arrow", "ic-sm")} ${esc(c.prochaineAction)} ${due(c.dateProchaineAction)}</div>` : ""}</div>
     <div class="rr">${exSpan(c)}</div></a>`;
 }
 
 function card(c) {
   return `<a class="ccard" href="#/contacts/${c.id}">${av(c)}<div class="cm"><div class="cn">${esc(c.nom)}</div><div class="cs">${esc(subOf(c)) || "&nbsp;"}</div>
-    <div class="chips">${parcChip(c.parcours)}${natureChip(c.nature)}${actChip(c)}${c.prio === "P1" ? chip("P1", "red") : c.prio ? chip(c.prio) : ""}${c.qualif ? chip(c.qualif, colorOf("Qualif Prospect", c.qualif)) : ""}</div>
+    <div class="chips">${parcChip(c.parcours)}${natureChip(c.nature)}${pisChip(c)}${actChip(c)}${c.prio === "P1" ? chip("P1", "red") : c.prio ? chip(c.prio) : ""}${c.qualif ? chip(c.qualif, colorOf("Qualif Prospect", c.qualif)) : ""}</div>
     ${c.prochaineAction || c.dateProchaineAction ? `<div class="cs clamp2" style="margin-top:6px">${ic("arrow", "ic-sm")} ${esc(c.prochaineAction || "Prochaine action")} ${due(c.dateProchaineAction)}</div>` : ""}</div></a>`;
 }
 
@@ -126,9 +128,12 @@ function card(c) {
 async function openContact(id) {
   const fromList = S.items?.find((c) => c.id === id);
   const sec = S.open?.id === id ? S.open.sec : "synthese";
-  S.open = { id, contact: fromList ? { ...fromList, partial: true } : null, values: null, saving: new Set(), error: null, tasks: null, sec };
+  S.open = { id, contact: fromList ? { ...fromList, partial: true } : null, values: null, saving: new Set(), error: null, tasks: null, pistes: null, sec };
   setDrawerOwner("contacts");
   renderDrawer();
+  // Pistes liées (lot 2, suite), en parallèle.
+  pistesApi.ofContact(id).then((r) => { if (S.open?.id === id) { S.open.pistes = r.pistes || []; renderDrawer(); } })
+    .catch(() => { if (S.open?.id === id) { S.open.pistes = "error"; renderDrawer(); } });
   // Tâches liées, chargées en parallèle de la fiche.
   todoApi.list({ contact: id }).then(async (r) => {
     let projets = [];
@@ -148,7 +153,7 @@ async function openContact(id) {
   renderDrawer();
 }
 
-const SECS = { synthese: "Synthèse", taches: "Tâches", fiche: "Fiche" };
+const SECS = { synthese: "Synthèse", pistes: "Pistes", taches: "Tâches", fiche: "Fiche" };
 
 function renderDrawer() {
   const o = S.open;
@@ -174,12 +179,13 @@ function renderDrawer() {
   const sub = [subOf(c), c.type !== "Personne" ? c.segmentation : null].filter(Boolean).join(" · ");
   const openN = Array.isArray(o.tasks) ? o.tasks.filter((x) => !isDone(x)).length : null;
   const cur = SECS[o.sec] ? o.sec : "synthese";
-  const body = { synthese: () => synthese(o), taches: () => tasksSection(o), fiche: () => o.values ? form(o) : `<p class="empty">Chargement des champs…</p>` }[cur]();
+  const pisN = Array.isArray(o.pistes) ? o.pistes.length : null;
+  const body = { synthese: () => synthese(o), pistes: () => pistesSection(o), taches: () => tasksSection(o), fiche: () => o.values ? form(o) : `<p class="empty">Chargement des champs…</p>` }[cur]();
   swapHTML(drawerHost, `
     <div class="dh"><div class="dact">${acts}</div>${av(c, "lg")}<div style="flex:1;min-width:0"><h1>${esc(c.nom)}</h1><div class="sub">${esc(sub)}</div>
       <div class="chips" style="margin-top:8px">${c.type ? `<span class="chip">${esc(c.type)}</span>` : ""}${natureChip(c.nature)}${chip(c.qualif, colorOf("Qualif Prospect", c.qualif))}${c.prio ? chip(c.prio, colorOf("Prio", c.prio)) : ""}</div></div></div>
     ${o.error ? `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(o.error)}</span></div>` : ""}
-    ${ficheTabs([["synthese", SECS.synthese], ["taches", SECS.taches, openN], ["fiche", SECS.fiche]], cur, "data-csec")}
+    ${ficheTabs([["synthese", SECS.synthese], ["pistes", SECS.pistes, pisN], ["taches", SECS.taches, openN], ["fiche", SECS.fiche]], cur, "data-csec")}
     <section class="cbody" aria-label="${SECS[cur]}">${body}</section>`);
 }
 
@@ -189,7 +195,8 @@ function synthese(o) {
   const orgs = (c.rattacheA || []).map((id) => ({ id, nom: orgName(id) })).filter((x) => x.nom);
   const open = Array.isArray(o.tasks) ? o.tasks.filter((x) => !isDone(x)) : null;
   // Lot 1 bis (POC) : dernier échange direct lu au Journal, prochaine étape (première tâche ouverte, sinon la
-  // prochaine action de la fiche), recommandeurs ou rattachements nommés. Prochaine étape des pistes : lot 2.
+  // prochaine action de la fiche), recommandeurs ou rattachements nommés. Lot 2 (suite) : prochaine étape de la
+  // piste active la plus proche, calculée par la fonction (prochaineEtapePiste).
   const next = open && open.length ? open.slice().sort((a, b) => (a.echeance || "9").localeCompare(b.echeance || "9"))[0] : null;
   const ld = c.dernierEchangeDirect;
   const names = (list) => list.map((x) => x.nom ? `<a href="#/contacts/${x.id}">${esc(x.nom)}</a>` : `<span class="muted">fiche non lue</span>`).join(", ");
@@ -201,6 +208,7 @@ function synthese(o) {
       ${c.nature == null && !c.partial ? `<div><span>Dernier échange</span><b>${c.dernierEchange ? esc(fd(c.dernierEchange)) : "Aucun"}</b><small>Propriété de la fiche (journal non lu)</small></div>` : `<div><span>Dernier échange direct</span><b>${ld ? esc(fd(ld.date)) : c.partial ? "…" : "Aucun au Journal de bord"}</b>${ld ? `<small><a href="https://www.notion.so/${esc(String(ld.id).replace(/-/g, ""))}" target="_blank" rel="noopener">${esc(ld.titre)}</a></small>` : c.dernierEchange ? `<small>Propriété Dernier échange : ${esc(fd(c.dernierEchange))}</small>` : ""}</div>`}
       <div><span>Prochaine étape</span>${next ? `<b><a href="#/todo/${next.id}">${esc(next.nom)}</a></b>${next.echeance ? `<small>${due(next.echeance)}</small>` : ""}`
         : c.prochaineAction ? `<b>${esc(c.prochaineAction)}</b><small>Prochaine action de la fiche ${due(c.dateProchaineAction)}</small>` : `<b>${open === null ? "…" : "Rien de prévu"}</b>`}</div>
+      ${c.prochaineEtapePiste ? `<div><span>Prochaine étape d'une piste</span><b><a href="#/pistes/${esc(c.prochaineEtapePiste.piste)}">${esc(c.prochaineEtapePiste.action || c.prochaineEtapePiste.nom)}</a></b><small>${c.prochaineEtapePiste.action ? esc(c.prochaineEtapePiste.nom) + " " : ""}${c.prochaineEtapePiste.date ? due(c.prochaineEtapePiste.date) : "sans date"}</small></div>` : ""}
       ${people}
       <div><span>Liens dans Notion</span><b class="small">${n(rel.opportunites)} opportunité(s) · ${n(rel.todo)} tâche(s) · ${n(rel.journal)} échange(s)</b>${c.partial ? "" : `<small>Recommandé par ${n(rel.recommandePar)} · a recommandé ${n(rel.aRecommande)}</small>`}</div>
     </div>
@@ -209,7 +217,7 @@ function synthese(o) {
     ${open === null ? `<p class="empty">Chargement des tâches…</p>` : !Array.isArray(o.tasks) ? `<p class="empty">Tâches indisponibles pour l'instant.</p>` : open.length ? `<div class="list">${open.slice(0, 3).map(taskRow).join("")}</div>${open.length > 3 ? `<p class="small muted"><button class="lnk" data-csec="taches">Voir les ${open.length} tâches ouvertes</button></p>` : ""}` : `<p class="empty">Aucune tâche ouverte.</p>`}
     ${c.syntheseAgent ? `<h3 class="sh">Synthèse agent</h3><p class="notes">${esc(c.syntheseAgent)}</p>` : ""}
     ${c.modifie ? `<p class="small muted" style="margin-top:14px">Modifié dans Notion le ${esc(new Date(c.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}. Les notes se modifient dans le panneau Mes notes.</p>` : ""}
-    ${c.nature ? `<p class="small muted">Nature calculée par le cockpit : client ou partenaire si le contact est relié par une tâche à une mission en cours ou terminée, réseau s'il a recommandé quelqu'un ou s'il est hors parcours, prospect sinon. Les pistes gagnées compteront au lot 2.</p>` : ""}`;
+    ${c.nature ? `<p class="small muted">Nature calculée par le cockpit : client ou partenaire si le contact est relié par une tâche à une mission en cours ou terminée, ou lié à une piste gagnée ou partenaire, réseau s'il a recommandé quelqu'un ou s'il est hors parcours, prospect sinon.</p>` : ""}`;
 }
 
 const taskRow = (x) => `<a class="row" href="#/todo/${x.id}"><div class="rm"><div class="rt ${isDone(x) ? "strike" : ""}">${esc(x.nom)}</div>
@@ -230,6 +238,48 @@ function tasksSection(o) {
     ${pj.length ? `<div class="chips" style="margin-bottom:8px">${pj.map((p) => `<a class="chip pj" href="#/projets/${p.id}">${ic("folder", "ic-sm")}${esc(p.nom)}</a>`).join("")}</div>` : ""}
     ${open.length ? `<div class="list">${open.map(row).join("")}</div>` : `<p class="empty">Aucune tâche ouverte.</p>`}
     ${done.length ? `<details class="more"><summary>${done.length} terminée${done.length > 1 ? "s" : ""} ou annulée${done.length > 1 ? "s" : ""}</summary><div class="list">${done.map(row).join("")}</div></details>` : ""}`;
+}
+
+// ---------------- Pistes du contact (lot 2, suite) ----------------
+
+function pistesSection(o) {
+  const p = o.pistes;
+  const head = `<div class="card-h"><span class="small muted" style="flex:1">Pistes liées dans la base Pistes/Opportunités</span></div>`;
+  if (p === null) return `${head}<p class="empty">Chargement des pistes…</p>`;
+  if (p === "error") return `${head}<p class="empty">Pistes indisponibles pour l'instant.</p>`;
+  if (!p.length) return `${head}<p class="empty">Aucune piste liée à ce contact dans Notion.</p>`;
+  return `${head}<div class="list">${p.map(pisteRow).join("")}</div>`;
+}
+
+const pisteRow = (x) => `<a class="row" href="#/pistes/${x.id}"><div class="rm"><div class="rt">${esc(x.nom)}</div>
+    <div class="ameta">${x.etape ? `<span class="chip">${esc(x.etape)}</span>` : ""}${x.issue ? `<span class="chip">${esc(x.issue)}</span>` : ""}</div>
+    ${x.prochaineAction ? `<div class="rs clamp2">${ic("arrow", "ic-sm")} ${esc(x.prochaineAction)}</div>` : ""}</div><div class="rr">${x.dateProchaineAction ? due(x.dateProchaineAction) : ""}</div></a>`;
+
+// ---------------- Contacts « À créer » (C7, lot 2 suite) ----------------
+
+async function loadACreer() {
+  S.acreer = "loading"; render();
+  try { S.acreer = await contactsApi.aCreer(); } catch (e) { S.acreer = { error: e.message }; }
+  render();
+}
+
+const SRC = { pistes: ["pistes", "Piste"], todo: ["todo", "Tâche"], journal: [null, "Journal"] };
+function aCreerHTML() {
+  const a = S.acreer;
+  if (!a) { setTimeout(loadACreer, 0); return `<div class="card"><p class="empty">Chargement…</p></div>`; }
+  if (a === "loading") return `<div class="card"><p class="empty">Chargement…</p></div>`;
+  if (a.error) return `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(a.error)}</span></div>`;
+  if (a.indisponible) return `<div class="card"><p class="empty">Le miroir des contacts et des pistes n'est pas encore rempli : rien n'est calculé.</p></div>`;
+  const src = (s) => { const [v, l] = SRC[s.base] || [null, s.base]; return v ? `<a class="chip" href="#/${v}/${s.id}">${l} · ${esc(s.titre)}</a>` : `<a class="chip" href="https://www.notion.so/${esc(s.id.replace(/-/g, ""))}" target="_blank" rel="noopener">${l} · ${esc(s.titre)}</a>`; };
+  return `<section class="card"><div class="card-h"><h2>À créer dans Notion</h2><span class="count">${a.aCreer.length}</span></div>
+      <p class="small muted">${esc(a.regle)}</p>
+      ${a.aCreer.length ? `<div class="list">${a.aCreer.map((x) => `<div class="row"><span class="av k-acreer" aria-hidden="true">?</span><div class="rm"><div class="rt">${esc(x.nom || "Fiche absente de Contacts")} <span class="chip st-attente">À créer</span></div><div class="rs">${esc(x.raison)}</div><div class="chips" style="margin-top:4px">${x.sources.map(src).join("")}</div></div></div>`).join("")}</div>`
+        : `<p class="empty">Aucune personne à créer : toutes les relations Contacts des pistes, des tâches et du journal pointent vers une fiche existante, et aucune personne n'y est mentionnée (@) sans fiche.</p>`}
+    </section>
+    <section class="card" style="margin-top:14px"><div class="card-h"><h2>Pistes actives sans contact</h2><span class="count">${a.pistesSansContact.length}</span></div>
+      <p class="small muted">Rattache un contact existant depuis l'onglet Contacts de la fiche piste, ou crée-le avec « Contact recommandé » dans la vue Réseau.</p>
+      ${a.pistesSansContact.length ? `<div class="list">${a.pistesSansContact.map((x) => `<a class="row" href="#/pistes/${x.id}"><div class="rm"><div class="rt">${esc(x.nom)}</div><div class="ameta">${x.etape ? `<span class="chip">${esc(x.etape)}</span>` : ""}${x.issue ? `<span class="chip">${esc(x.issue)}</span>` : ""}</div></div></a>`).join("")}</div>` : `<p class="empty">Toutes les pistes actives ont au moins un contact.</p>`}
+    </section>`;
 }
 
 /** Notes du panneau : Notes contacts (personne) ou Notes entreprise (organisation, réseau), modifiables si sans mise en forme. */

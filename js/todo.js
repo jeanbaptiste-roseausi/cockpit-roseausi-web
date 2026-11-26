@@ -7,6 +7,7 @@ import { $, esc, ic, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etat
 const PROSPECTION_PROJECT = "3e6a08ac559780ccb74ce21b2d7e2bbb"; // projet « Prospection » (filtre du POC)
 const CONTACTS_REL = "👱‍♀️ Contacts";
 const THEME_REL = "Thème";
+const PISTES_REL = "Pistes/Opportunités"; // lot 2 (suite)
 const TEXTES = ["Récap", "Mes notes"]; // textes longs : envoyés avec la valeur affichée (contrôle de conflit)
 
 const S = {
@@ -31,8 +32,8 @@ export const todoView = {
     if (!S.items) await load();
   },
   open: (id) => (id === "new" ? openNew() : openTask(id)),
-  // #/todo/new/<id du contact> ou #/todo/new/projet/<id du projet>
-  openNew: (a, b) => (a === "projet" ? openNew(null, b) : openNew(a)),
+  // #/todo/new/<id du contact>, #/todo/new/projet/<id du projet> ou #/todo/new/piste/<id de la piste>
+  openNew: (a, b) => (a === "projet" ? openNew(null, b) : a === "piste" ? openNew(null, null, b) : openNew(a)),
   close: () => { S.open = null; },
   reload: () => { S.justDone.clear(); S.done = null; return load(true); },
 };
@@ -43,6 +44,7 @@ async function load(force = false) {
   try {
     const [list, schema] = await Promise.all([todoApi.list(), S.schema && !force ? S.schema : todoApi.schema()]);
     S.items = list.tasks; S.fetchedAt = list.fetchedAt; S.synchro = syncOf(list); S.schema = schema;
+    S.pistesNoms = { ...(S.pistesNoms || {}), ...(list.pistesNoms || {}) };
     if (S.f.v === "faites") await loadDone();
   } catch (e) { S.error = e.message; }
   finally { S.loading = false; render(); }
@@ -73,6 +75,9 @@ const prioChip = (t) => t.prio === "P1" && !isDone(t) ? chip("P1", "red") : t.pr
 const initiatives = () => S.schema?.initiatives || [];
 const iniById = (id) => initiatives().find((x) => nid(x.id) === nid(id));
 const iniChip = (id) => { const t = iniById(id); return t ? `<span class="chip ini" title="Initiative">${ic("layers", "ic-sm")}${esc(t.nom)}</span>` : ""; };
+// Pistes (lot 2, suite) : noms renvoyés par la fonction todo (liste) ou choix du schéma.
+const pisteName = (id) => S.pistesNoms?.[id] ?? (S.schema?.pistes || []).find((p) => nid(p.id) === nid(id))?.nom;
+const pisteChip = (id) => { const n = pisteName(id); return n ? `<span class="chip st-encours" title="Piste">${ic("target", "ic-sm")}${esc(n)}</span>` : ""; };
 const contactName = (id) => contactsList.sync().find((c) => nid(c.id) === nid(id))?.nom;
 
 // ---------------- Liste ----------------
@@ -88,7 +93,7 @@ function filtered() {
   if (f.proj) list = list.filter((t) => t.projets.some((p) => nid(p) === nid(f.proj)));
   const q = nrm(f.q.trim());
   // Recherche (lot 1 bis, POC) : intitulé, type, projet, initiative, récap, synthèse agent, Mes notes, noms des contacts.
-  if (q) list = list.filter((t) => nrm([t.nom, t.typeAction, t.texte, ...t.projets.map((p) => projById(p)?.nom), ...(t.themes || []).map((x) => iniById(x)?.nom), ...(t.contacts || []).map(contactName)].join(" ")).includes(q));
+  if (q) list = list.filter((t) => nrm([t.nom, t.typeAction, t.texte, ...t.projets.map((p) => projById(p)?.nom), ...(t.themes || []).map((x) => iniById(x)?.nom), ...(t.contacts || []).map(contactName), ...(t.pistesIds || []).map(pisteName)].join(" ")).includes(q));
   if (f.v !== "faites") list.sort((a, b) => (a.echeance || "9").localeCompare(b.echeance || "9") || (a.prio || "P9").localeCompare(b.prio || "P9"));
   return list;
 }
@@ -135,7 +140,7 @@ function row(t) {
   return `<div class="arow ${d ? "done" : ""}">
     <button class="chk ${d ? "done" : ""}" data-tdone="${t.id}" aria-label="${d ? "Rouvrir la tâche" : "Marquer comme terminée"}">${d ? ic("check", "ic-sm") : ""}</button>
     <a class="am" href="#/todo/${t.id}"><div class="an">${esc(t.nom)}</div>
-      <div class="ameta">${prioChip(t)}${etatChip(t.etat)}${t.projets.slice(0, 1).map(projChip).join("")}${(t.themes || []).slice(0, 1).map(iniChip).join("")}${taSpan(t.typeAction)}</div></a>
+      <div class="ameta">${prioChip(t)}${etatChip(t.etat)}${t.projets.slice(0, 1).map(projChip).join("")}${(t.pistesIds || []).slice(0, 1).map(pisteChip).join("")}${(t.themes || []).slice(0, 1).map(iniChip).join("")}${taSpan(t.typeAction)}</div></a>
     ${d ? "" : due(t.echeance)}</div>`;
 }
 
@@ -151,14 +156,15 @@ function kanban(list) {
     <div class="board">${[...cols, ...extra].map((e) => { const it = list.filter((t) => t.etat === e); return `<section class="col" data-drop="${esc(e)}"><div class="col-h">${esc(etatLabel(e))}<span class="n">${it.length}</span></div>${it.map(kcard).join("") || `<p class="small muted" style="padding:6px">Aucune tâche</p>`}</section>`; }).join("")}</div>`;
 }
 const kcard = (t) => `<a class="pcard acard" href="#/todo/${t.id}" draggable="true" data-drag="${t.id}"><div class="an">${esc(t.nom)}</div>
-  <div class="chips">${prioChip(t)}${t.projets.slice(0, 1).map(projChip).join("")}${(t.themes || []).slice(0, 1).map(iniChip).join("")}</div>
+  <div class="chips">${prioChip(t)}${t.projets.slice(0, 1).map(projChip).join("")}${(t.pistesIds || []).slice(0, 1).map(pisteChip).join("")}${(t.themes || []).slice(0, 1).map(iniChip).join("")}</div>
   <div class="acard-f">${due(t.echeance)}${taSpan(t.typeAction)}</div></a>`;
 
 // ---------------- Écritures ----------------
 
 function applyTask(task) {
-  const { id, nom, etat, prio, echeance, typeAction, bloc, projets: pr, contacts, pistes, themes, blocDeduit, texte, creeParAgent, modifie } = task;
-  const item = { id, nom, etat, prio, echeance, typeAction, bloc, projets: pr, contacts, pistes, themes, blocDeduit, texte, creeParAgent, modifie };
+  const { id, nom, etat, prio, echeance, typeAction, bloc, projets: pr, contacts, pistes, pistesIds, themes, blocDeduit, texte, creeParAgent, modifie } = task;
+  const item = { id, nom, etat, prio, echeance, typeAction, bloc, projets: pr, contacts, pistes, pistesIds, themes, blocDeduit, texte, creeParAgent, modifie };
+  for (const p of task.pistesListe || []) (S.pistesNoms ||= {})[p.id] = p.nom;
   for (const arr of [S.items, S.done]) if (arr) { const i = arr.findIndex((x) => x.id === id); if (i >= 0) arr[i] = item; }
   if (S.items && !S.items.some((x) => x.id === id) && !isDone(item)) S.items.push(item);
 }
@@ -259,7 +265,8 @@ function synthese(o, nameOfProj) {
       <div><span>Bloc</span><b>${t.bloc ? esc(t.bloc) : t.blocDeduit ? `${esc(t.blocDeduit)} <span class="small muted">(déduit)</span>` : "Non renseigné"}</b>${!t.bloc && t.blocDeduit ? `<small>Déduit du type d'action et de l'état, rien n'est écrit dans Notion</small>` : ""}</div>
       <div><span>Durée estimée</span><b>${t.dureeMin != null ? `${t.dureeMin} min` : t.partial ? "…" : "Non renseignée"}</b>${t.typeAction ? `<small>${taSpan(t.typeAction)}</small>` : ""}</div>
       ${t.projets.map((p) => `<a class="sfact-link" href="#/projets/${p}"><span>Projet</span><b>${esc(nameOfProj(p))}</b><small>Ouvrir le projet ›</small></a>`).join("")}
-      ${t.pistes ? `<div><span>Piste</span><b>${t.pistes} piste${t.pistes > 1 ? "s" : ""} liée${t.pistes > 1 ? "s" : ""}</b><small>Fiche piste au lot 2</small></div>` : ""}
+      ${(t.pistesListe || []).map((p) => `<a class="sfact-link" href="#/pistes/${p.id}"><span>Piste</span><b>${esc(p.nom)}</b><small>${esc([p.etape, p.issue].filter(Boolean).join(" · ")) || "Ouvrir la piste"} ›</small></a>`).join("")}
+      ${t.pistes && !t.pistesListe ? `<div><span>Piste</span><b>${t.pistes} piste${t.pistes > 1 ? "s" : ""} liée${t.pistes > 1 ? "s" : ""}</b><small>…</small></div>` : ""}
     </div>
     ${o.values ? iniSelect(o, "ts-th") : ""}
     ${!t.projets.length && !t.pistes ? `<div class="banner dashed">${ic("alert", "ic-sm")}<span>Tâche rattachée à aucun projet ni piste.</span><button class="btn sm" data-tsec="liens">Rattacher</button></div>` : ""}
@@ -300,7 +307,11 @@ function iniSelect(o, id) {
 }
 
 function links(o, nameOfProj, nameOfContact) {
-  const t = o.task, busyP = o.saving.has("Projets"), busyC = o.saving.has(CONTACTS_REL);
+  const t = o.task, busyP = o.saving.has("Projets"), busyC = o.saving.has(CONTACTS_REL), busyPi = o.saving.has(PISTES_REL);
+  const linkedPi = new Set((t.pistesIds || []).map(nid));
+  const pisteChoices = (S.schema?.pistes || []).filter((p) => !linkedPi.has(nid(p.id)));
+  const pisteRow = S.schema?.editable?.[PISTES_REL] ? `<dt>Pistes</dt><dd><div class="chips">${(t.pistesIds || []).map((p) => `<span class="chip st-encours">${ic("target", "ic-sm")}<a href="#/pistes/${p}">${esc(pisteName(p) || "Piste")}</a><button class="x" data-trel="${PISTES_REL}" data-trm="${p}" aria-label="Retirer la piste ${esc(pisteName(p) || "")}" ${busyPi || t.pistesMore ? "disabled" : ""}>×</button></span>`).join("") || `<span class="muted small">Aucune</span>`}</div>
+      ${t.pistesMore ? "" : `<label class="sr" for="tl-pi">Ajouter une piste</label><select class="sel addrel" id="tl-pi" data-tadd="${PISTES_REL}" ${busyPi ? "disabled" : ""}><option value="">+ Ajouter une piste</option>${pisteChoices.map((p) => `<option value="${p.id}">${esc(p.nom)}${p.issue ? ` (${esc(p.issue)})` : ""}</option>`).join("")}</select>`}</dd>` : "";
   const linkedP = new Set(t.projets.map(nid)), linkedC = new Set(t.contacts.map(nid));
   const projChoices = projets().filter((p) => !linkedP.has(nid(p.id)) && p.etat !== "Annulé" && p.etat !== "Terminé");
   const contactChoices = contactsList.sync().filter((c) => !linkedC.has(nid(c.id)));
@@ -310,6 +321,7 @@ function links(o, nameOfProj, nameOfContact) {
     <dt>Contacts</dt><dd><div class="chips">${t.contacts.map((c) => `<span class="chip"><a href="#/contacts/${c}">${esc(nameOfContact(c))}</a><button class="x" data-trel="${CONTACTS_REL}" data-trm="${c}" aria-label="Retirer ${esc(nameOfContact(c))}" ${busyC || t.contactsMore ? "disabled" : ""}>×</button></span>`).join("") || `<span class="muted small">Aucun</span>`}</div>
       ${t.contactsMore ? "" : `<label class="sr" for="tl-c">Ajouter un contact</label><input class="inp addrel" id="tl-c" list="tl-cl" placeholder="+ Ajouter un contact (nom)" autocomplete="off" ${busyC ? "disabled" : ""}>
       <datalist id="tl-cl">${contactChoices.map((c) => `<option value="${esc(c.nom)}">`).join("")}</datalist>`}</dd>
+    ${pisteRow}
   </dl>${t.projetsMore || t.contactsMore ? `<p class="small muted">Trop de liens pour être modifiés ici, passe par Notion.</p>` : ""}`;
 }
 
@@ -373,8 +385,8 @@ async function saving(prop, fn) {
 
 // ---------------- Création ----------------
 
-async function openNew(contactId, projetId) {
-  S.open = { id: "new", isNew: true, contactId: contactId || null, projetId: projetId || null, saving: new Set(), error: null };
+async function openNew(contactId, projetId, pisteId) {
+  S.open = { id: "new", isNew: true, contactId: contactId || null, projetId: projetId || null, pisteId: pisteId || null, saving: new Set(), error: null };
   setDrawerOwner("todo");
   renderDrawer();
   try { if (!S.schema) S.schema = await todoApi.schema(); } catch (e) { S.open.error = e.message; }
@@ -398,8 +410,9 @@ function newForm(o) {
       <div class="fld"><label for="tn-proj">Projet</label><select id="tn-proj"><option value="">Aucun</option>${projChoices.map((p) => `<option value="${p.id}" ${o.projetId && nid(o.projetId) === nid(p.id) ? "selected" : ""}>${esc(p.nom)}</option>`).join("")}</select></div>
       <div class="fld"><label for="tn-contact">Contact</label><input id="tn-contact" list="tn-cl" autocomplete="off" placeholder="Nom du contact" value="${esc(c?.nom || "")}">
         <datalist id="tn-cl">${contactsList.sync().map((x) => `<option value="${esc(x.nom)}">`).join("")}</datalist></div>
+      ${ed[PISTES_REL] ? `<div class="fld"><label for="tn-piste">Piste</label><select id="tn-piste"><option value="">Aucune</option>${(S.schema.pistes || []).map((p) => `<option value="${p.id}" ${o.pisteId && nid(o.pisteId) === nid(p.id) ? "selected" : ""}>${esc(p.nom)}</option>`).join("")}</select></div>` : ""}
       ${o.error ? `<div class="banner wide">${ic("alert", "ic-sm")}<span>${esc(o.error)}</span></div>` : ""}
-      <div class="mfoot wide"><a class="btn sm" href="${o.contactId ? `#/contacts/${o.contactId}` : o.projetId ? `#/projets/${o.projetId}` : "#/todo"}">Annuler</a><button class="btn sm pri" type="submit" ${o.saving.has("new") ? "disabled" : ""}>${o.saving.has("new") ? "Création…" : "Créer dans Notion"}</button></div>
+      <div class="mfoot wide"><a class="btn sm" href="${o.contactId ? `#/contacts/${o.contactId}` : o.projetId ? `#/projets/${o.projetId}` : o.pisteId ? `#/pistes/${o.pisteId}` : "#/todo"}">Annuler</a><button class="btn sm pri" type="submit" ${o.saving.has("new") ? "disabled" : ""}>${o.saving.has("new") ? "Création…" : "Créer dans Notion"}</button></div>
     </form>`;
 }
 
@@ -416,6 +429,7 @@ async function submitNew(form) {
   const values = { "Nom": v("#tn-nom"), "État": v("[data-tnew='État']") || "A faire" };
   for (const k of ["Échéance", "Prio", "Type d'action"]) { const x = form.querySelector(`[data-tnew="${k}"]`)?.value; if (x) values[k] = x; }
   if (v("#tn-proj")) values["Projets"] = [v("#tn-proj")];
+  if (v("#tn-piste")) values[PISTES_REL] = [v("#tn-piste")];
   const cname = v("#tn-contact");
   if (cname) {
     const cid = contactIdByName(cname);
@@ -478,6 +492,7 @@ export function bindTodoDrawerEvents(root) {
     if (el.dataset?.tprop) { saveField(el); return; }
     if (el.dataset?.tini) { const v = el.value; saving(THEME_REL, () => update(S.open.id, { [THEME_REL]: { set: v ? [v] : [] } }, v ? "Initiative enregistrée dans Notion." : "Initiative retirée dans Notion.")); return; }
     if (el.dataset?.tadd === "Projets" && el.value) { const id = el.value; saving("Projets", () => update(S.open.id, { "Projets": { add: [id] } }, "Projet ajouté dans Notion.")); return; }
+    if (el.dataset?.tadd === PISTES_REL && el.value) { const id = el.value; saving(PISTES_REL, () => update(S.open.id, { [PISTES_REL]: { add: [id] } }, "Piste rattachée dans Notion.")); return; }
     if (el.id === "tl-c" && el.value.trim()) {
       const id = contactIdByName(el.value);
       if (!id) { toast(`Contact « ${el.value} » introuvable parmi les contacts actifs.`, "err"); return; }

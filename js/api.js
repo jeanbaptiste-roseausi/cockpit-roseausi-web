@@ -42,6 +42,7 @@ export const contactsApi = {
   list: () => call("contacts"),
   schema: () => call("contacts", "/schema"),
   get: (id) => call("contacts", `/${id}`),
+  aCreer: () => call("contacts", "/a-creer"),
   update: (id, changes, avant) => call("contacts", `/${id}`, { method: "PATCH", body: { changes, ...(avant ? { avant } : {}) } }),
 };
 

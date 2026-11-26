@@ -257,7 +257,7 @@ function renderDrawer() {
       ${won ? `<span class="chip c-good">${ic("win", "ic-sm")}Gagnée</span>` : `<button class="btn sm pri" data-piact="gagne" ${o.values ? "" : "disabled"}>${ic("win", "ic-sm")}Marquer gagnée</button>`}
       ${iss === "Perdu" ? `<button class="btn sm" data-piact="rouvrir" ${o.values ? "" : "disabled"}>${ic("reset", "ic-sm")}Rouvrir</button>` : !won ? `<button class="btn sm danger" data-piact="perdu" ${o.values ? "" : "disabled"}>${ic("close", "ic-sm")}Perdue</button>` : ""}
       <button class="btn sm" data-pisec="suivi">${ic("flag", "ic-sm")}Planifier</button>
-      <button class="btn sm" disabled title="Créer une tâche liée à une piste demande la relation Pistes dans la fonction todo (après le lot 1 bis)">${ic("todo", "ic-sm")}Action</button>
+      <a class="btn sm" href="#/todo/new/piste/${p.id}" title="Nouvelle tâche liée à cette piste, créée dans la base TO DO">${ic("todo", "ic-sm")}Action</a>
       <button class="btn sm" disabled title="Échanges au lot 6">${ic("plus", "ic-sm")}Échange</button></div>
       <span class="ifmt">${ic("target")}</span><div style="flex:1;min-width:0"><h1>${esc(p.nom)}</h1>
       <div class="chips" style="margin-top:8px">${stChip(p.etape)}${issChip(p.issue, true)}${/Opportunit/.test(p.leadOpportunite || "") ? `<span class="chip st-relire">Opportunité</span>` : `<span class="chip">Piste</span>`}${stars(p.prio)}${p.taille ? `<span class="chip">Taille ${esc(p.taille)}</span>` : ""}</div></div></div>
