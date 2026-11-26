@@ -98,3 +98,16 @@ export function projetsIndex() {
   if (!projetsIdx) projetsIdx = todoApi.schema().then((r) => r.projets || []).catch((e) => { projetsIdx = null; throw e; });
   return projetsIdx;
 }
+
+// Lot 5a : Ma journée et Vue d'ensemble (lecture seule, miroir), Journal de bord.
+export const journeeApi = {
+  get: () => call("journee"),
+  ensemble: () => call("journee", "/ensemble"),
+};
+
+export const journalApi = {
+  list: (depuis) => call("journal", depuis ? `?depuis=${encodeURIComponent(depuis)}` : ""),
+  get: (id) => call("journal", `/${id}`),
+  rattacher: (id, changes) => call("journal", `/${id}`, { method: "PATCH", body: { changes } }),
+  action: (id, values) => call("journal", `/${id}/action`, { method: "POST", body: { values } }),
+};

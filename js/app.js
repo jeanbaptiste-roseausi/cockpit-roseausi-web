@@ -1,20 +1,26 @@
 // Point d'entrée : connexion, navigation par adresse, fiche plein écran, recherche globale.
 // Adresses : #/contacts, #/contacts/<id>, #/todo, #/todo/<id>, #/todo/new, #/todo/new/<id du contact>,
 // #/contacts/new, #/contacts/new/piste/<id de la piste> (création d'un contact, 26/11/2026),
-// #/todo/new/projet/<id du projet>, #/todo/new/piste/<id de la piste> (lot 2, suite), #/projets, #/projets/<id>, #/pistes, #/pistes/<id> (lot 2), #/reseau (lot 2).
+// #/todo/new/projet/<id du projet>, #/todo/new/piste/<id de la piste> (lot 2, suite), #/projets, #/projets/<id>, #/pistes, #/pistes/<id> (lot 2), #/reseau (lot 2),
+// #/journee (accueil), #/ensemble, #/journal, #/journal/<id> (lot 5a).
 import { onAuth, sendMagicLink, signOut, isAllowed, currentSession, consumeUrlTokens } from "./session.js";
 import { contactsView, bindContactEvents, bindDrawerEvents, bindNewContactEvents } from "./contacts.js";
 import { todoView, bindTodoEvents, bindTodoDrawerEvents } from "./todo.js";
 import { projetsView, bindProjetsEvents, bindProjetsDrawerEvents } from "./projets.js";
 import { pistesView, bindPistesEvents, bindPistesDrawerEvents } from "./pistes.js";
 import { reseauView, bindReseauEvents } from "./reseau.js";
+import { journeeView, ensembleView, bindJourneeEvents } from "./journee.js";
+import { journalView, bindJournalEvents, bindJournalDrawerEvents } from "./journal.js";
 import { mountSearch } from "./search.js";
 import { $, esc, ic, tickSync, toast, bindNotes } from "./ui.js";
 import { miroirApi } from "./api.js";
 import { bindAgent } from "./agent.js";
 
 // Vues disponibles, dans l'ordre des onglets. L'agent de fiche et les mails viendront s'ajouter ici.
-const VIEWS = [contactsView, todoView, projetsView, pistesView, reseauView];
+// Lot 5a : Ma journée (accueil, comme la maquette), Vue d'ensemble et Journal en tête.
+const VIEWS = [journeeView, ensembleView, contactsView, todoView, projetsView, pistesView, reseauView, journalView];
+// Téléphone : quatre onglets en bas (maquette, MOB_TABS) et « Plus » pour les autres vues.
+const MOB_TABS = ["journee", "todo", "pistes", "contacts"];
 const SOON = [{ id: "mails", label: "Mails", icon: "mail" }];
 
 let session = null;
@@ -26,7 +32,7 @@ function shell() {
   const soon = (v) => `<li><button disabled title="Prochain jalon">${ic(v.icon)}<span class="nl">${esc(v.label)}</span><span class="soon">bientôt</span></button></li>`;
   $("#app").innerHTML = `
     <aside id="side">
-      <div class="brand"><div class="wm">RoseauSI</div><div class="brand-sub">Cockpit de pilotage</div><span class="poc-tag">Lot 2</span></div>
+      <div class="brand"><div class="wm">RoseauSI</div><div class="brand-sub">Cockpit de pilotage</div><span class="poc-tag">Lot 5a</span></div>
       <ul class="nav">${VIEWS.map((v) => nav(v, v === current)).join("")}${SOON.map(soon).join("")}</ul>
       <div class="side-foot"><span>Connecté : <b>${esc(session?.user?.email)}</b></span>
         <div class="side-row"><button class="side-btn" data-act="reload">${ic("refresh", "ic-sm")}Actualiser</button><button class="side-btn" data-act="logout">${ic("logout", "ic-sm")}Déconnexion</button></div></div>
@@ -39,7 +45,8 @@ function shell() {
         <button class="iconbtn mob-only" data-act="logout" aria-label="Déconnexion">${ic("logout")}</button></div>
       <main id="view"></main>
     </div>
-    <nav id="tabbar" aria-label="Navigation">${VIEWS.map((v) => `<button class="${v === current ? "on" : ""}" data-nav="${v.id}">${ic(v.icon)}${esc(v.short || v.label)}</button>`).join("")}</nav>`;
+    <nav id="tabbar" aria-label="Navigation">${VIEWS.filter((v) => MOB_TABS.includes(v.id)).map((v) => `<button class="${v === current ? "on" : ""}" data-nav="${v.id}">${ic(v.icon)}${esc(v.short || v.label)}</button>`).join("")}<button class="${MOB_TABS.includes(current.id) ? "" : "on"}" data-act="more" aria-expanded="false" aria-controls="morelist">${ic("list")}Plus</button></nav>
+    <div id="morelist" class="morelist" hidden>${VIEWS.filter((v) => !MOB_TABS.includes(v.id)).map((v) => `<button class="${v === current ? "on" : ""}" data-nav="${v.id}">${ic(v.icon)}<span>${esc(v.label)}</span></button>`).join("")}</div>`;
 }
 
 function loginScreen(msg = "", sent = false) {
@@ -68,7 +75,7 @@ let ficheStack = [];
 
 function route() {
   if (!session) return;
-  const [, view = "contacts", id, extra, extra2] = (location.hash || "#/contacts").split("/");
+  const [, view = "journee", id, extra, extra2] = (location.hash || "#/journee").split("/");
   const v = VIEWS.find((x) => x.id === view) ?? VIEWS[0];
   if (v !== current) { current?.close?.(); current = v; shell(); v.mount($("#view"), $("#dr-body")); mountSearch($("#search")); }
   if (id) {
@@ -142,7 +149,9 @@ setInterval(() => tickSync(), 30_000);
 // Événements globaux
 document.addEventListener("click", (e) => {
   const nav = e.target.closest("[data-nav]");
-  if (nav) { location.hash = `#/${nav.dataset.nav}`; return; }
+  if (nav) { $("#morelist")?.setAttribute("hidden", ""); location.hash = `#/${nav.dataset.nav}`; return; }
+  if (e.target.closest("[data-act='more']")) { const m = $("#morelist"); m.hidden = !m.hidden; e.target.closest("[data-act='more']").setAttribute("aria-expanded", String(!m.hidden)); return; }
+  if (!e.target.closest("#morelist")) $("#morelist")?.setAttribute("hidden", "");
   const act = e.target.closest("[data-act]")?.dataset.act;
   if (act === "logout") signOut();
   if (act === "reload") actualiser();
@@ -164,6 +173,9 @@ bindProjetsDrawerEvents($("#dr-body"));
 bindPistesEvents($("#app"));
 bindPistesDrawerEvents($("#dr-body"));
 bindReseauEvents($("#app"));
+bindJourneeEvents($("#app"));
+bindJournalEvents($("#app"));
+bindJournalDrawerEvents($("#dr-body"));
 bindNotes($("#dr-side"));
 bindAgent($("#dr-side"));
 // Lot 3 : l'agent (ou une annulation) a écrit dans Notion : la fiche ouverte et la liste sont relues.
