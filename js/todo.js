@@ -25,7 +25,7 @@ const ddiff = (iso) => Math.round((new Date(iso.slice(0, 10) + "T12:00:00") - ne
 
 export const todoView = {
   id: "todo",
-  label: "TO DO",
+  label: "Actions",
   icon: "todo",
   async mount(container, drawer) {
     host = container; drawerHost = drawer;
@@ -156,9 +156,18 @@ function kanban(list) {
   return `<p class="small muted" style="margin:-4px 0 10px">${mobile ? "Ouvre une carte pour changer son état." : "Glisse une carte d'une colonne à l'autre pour changer son état dans Notion."}</p>
     <div class="board">${[...cols, ...extra].map((e) => { const it = list.filter((t) => t.etat === e); return `<section class="col" data-drop="${esc(e)}"><div class="col-h">${esc(etatLabel(e))}<span class="n">${it.length}</span></div>${it.map(kcard).join("") || `<p class="small muted" style="padding:6px">Aucune tâche</p>`}</section>`; }).join("")}</div>`;
 }
-const kcard = (t) => `<a class="pcard acard" href="#/todo/${t.id}" draggable="true" data-drag="${t.id}"><div class="an">${esc(t.nom)}</div>
-  <div class="chips">${prioChip(t)}${t.projets.slice(0, 1).map(projChip).join("")}${(t.pistesIds || []).slice(0, 1).map(pisteChip).join("")}${(t.themes || []).slice(0, 1).map(iniChip).join("")}</div>
-  <div class="acard-f">${due(t.echeance)}${taSpan(t.typeAction)}</div></a>`;
+// Carte du kanban (retours du 26/11) : vraie carte (fond, bordure fine, coins arrondis), titre en gras sans
+// soulignement, la carte entière ouvre la fiche ; dessous, une ligne discrète (projet ou piste en petite pastille,
+// échéance, type d'action, priorité). Liseré à gauche : rouge si la tâche est en retard, orange si c'est une P1.
+const todayParis = () => new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris" }).format(new Date());
+function kcard(t) {
+  const d = isDone(t), late = !d && !!t.echeance && t.echeance.slice(0, 10) < todayParis(), p1 = !d && t.prio === "P1";
+  const lien = t.projets.slice(0, 1).map(projChip).join("") || (t.pistesIds || []).slice(0, 1).map(pisteChip).join("");
+  const flag = late ? "En retard" : p1 ? "Priorité P1" : "";
+  return `<a class="pcard acard${late ? " is-late" : p1 ? " is-p1" : ""}" href="#/todo/${t.id}" draggable="true" data-drag="${t.id}"${flag ? ` title="${flag}"` : ""}>
+  <div class="an">${esc(t.nom)}</div>
+  <div class="acard-f">${lien}${due(t.echeance)}${taSpan(t.typeAction)}${prioChip(t)}${flag ? `<span class="sr">, ${flag}</span>` : ""}</div></a>`;
+}
 
 // ---------------- Écritures ----------------
 

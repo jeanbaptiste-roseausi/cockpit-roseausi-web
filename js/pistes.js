@@ -17,7 +17,7 @@ let host = null, drawerHost = null;
 
 export const pistesView = {
   id: "pistes",
-  label: "Prospection",
+  label: "Pistes",
   short: "Pistes",
   icon: "target",
   async mount(container, drawer) {

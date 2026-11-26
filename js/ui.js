@@ -206,18 +206,41 @@ export function ago(iso) {
   return `le ${d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} à ${hm(d)}`;
 }
 
-/** Synchro d'une réponse ; une réponse sans « synchro » (ancienne fonction) vaut lecture directe. */
-export const syncOf = (r) => r?.synchro ?? (r?.fetchedAt ? { source: "notion", synchronise: r.fetchedAt } : null);
+/**
+ * Synchro d'une réponse ; une réponse sans « synchro » (ancienne fonction) vaut lecture directe.
+ * `recu` : heure à laquelle la page a reçu la réponse (âge de ce qui est affiché).
+ */
+export const syncOf = (r) => {
+  const sy = r?.synchro ?? (r?.fetchedAt ? { source: "notion", synchronise: r.fetchedAt } : null);
+  return sy ? { ...sy, recu: new Date().toISOString() } : null;
+};
 
+/**
+ * Libellé de synchronisation (correctif du 26/11/2026). Quand le webhook est actif (`continu`) et que la relecture
+ * de contrôle date de moins de 30 minutes, le miroir suit Notion en quelques secondes : on dit « à jour avec Notion »,
+ * avec l'âge de ce qui est affiché si la vue a été lue il y a plus de 2 minutes. Sinon, l'heure de la dernière
+ * relecture, comme avant.
+ */
 function syncText(sy) {
   if (!sy?.synchronise) return sy?.source === "miroir" ? "jamais synchronisé avec Notion" : "";
-  return sy.source === "miroir" ? `synchronisé avec Notion ${ago(sy.synchronise)}` : `lu dans Notion à ${hm(new Date(sy.synchronise))}`;
+  if (sy.source !== "miroir") return `lu dans Notion à ${hm(new Date(sy.synchronise))}`;
+  const rel = syncMinutes(sy.synchronise);
+  if (sy.continu && rel != null && rel <= STALE_MIN) {
+    const lu = syncMinutes(sy.recu);
+    return lu != null && lu >= 2 ? `à jour avec Notion par webhook, vue lue ${ago(sy.recu)}` : "à jour avec Notion par webhook";
+  }
+  return `synchronisé avec Notion ${ago(sy.synchronise)}`;
+}
+function syncTitle(sy) {
+  if (sy?.source !== "miroir") return "";
+  const t = (iso) => (iso ? hm(new Date(iso)) : "jamais");
+  return `Dernière relecture de contrôle à ${t(sy.synchronise)}${sy.evenement ? `, dernier changement de Notion appliqué par webhook à ${t(sy.evenement)}` : ""}${sy.recu ? `, vue lue à ${t(sy.recu)}` : ""}.`;
 }
 
 const cap1 = (t, cap) => (cap && t ? t[0].toUpperCase() + t.slice(1) : t);
 
-/** Mention discrète « synchronisé il y a 3 min », tenue à jour par l'horloge de app.js. cap : majuscule initiale. */
-export const syncSpan = (sy, cap = false) => sy ? `<span class="sync" data-sync="${esc(sy.synchronise ?? "")}" data-src="${esc(sy.source)}"${cap ? ` data-cap="1"` : ""}>${esc(cap1(syncText(sy), cap))}</span>` : "";
+/** Mention discrète « à jour avec Notion par webhook » ou « synchronisé il y a 3 min », tenue à jour par l'horloge de app.js. cap : majuscule initiale. */
+export const syncSpan = (sy, cap = false) => sy ? `<span class="sync" data-sync="${esc(sy.synchronise ?? "")}" data-src="${esc(sy.source)}" data-continu="${sy.continu ? "1" : ""}" data-recu="${esc(sy.recu ?? "")}" data-evt="${esc(sy.evenement ?? "")}" title="${esc(syncTitle(sy))}"${cap ? ` data-cap="1"` : ""}>${esc(cap1(syncText(sy), cap))}</span>` : "";
 
 /** Bandeau affiché quand la dernière synchronisation date de plus de 30 minutes (ou n'a jamais eu lieu). */
 export function staleBanner(sy) {
@@ -230,7 +253,7 @@ export function staleBanner(sy) {
 /** Met à jour les mentions et bandeaux de synchronisation déjà affichés (toutes les 30 secondes). */
 export function tickSync(root = document) {
   root.querySelectorAll("[data-sync]").forEach((el) => {
-    const sy = { source: el.dataset.src, synchronise: el.dataset.sync || null };
+    const sy = { source: el.dataset.src, synchronise: el.dataset.sync || null, continu: el.dataset.continu === "1", recu: el.dataset.recu || null, evenement: el.dataset.evt || null };
     el.textContent = cap1(syncText(sy), el.dataset.cap === "1");
   });
   root.querySelectorAll("[data-stale]").forEach((el) => {

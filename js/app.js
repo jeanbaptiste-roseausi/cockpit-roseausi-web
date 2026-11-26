@@ -13,22 +13,53 @@ import { journeeView, ensembleView, bindJourneeEvents } from "./journee.js";
 import { journalView, bindJournalEvents, bindJournalDrawerEvents } from "./journal.js";
 import { mountSearch } from "./search.js";
 import { $, esc, ic, tickSync, toast, bindNotes } from "./ui.js";
-import { miroirApi } from "./api.js";
+import { miroirApi, todoApi, pistesApi } from "./api.js";
 import { bindAgent } from "./agent.js";
 
-// Vues disponibles, dans l'ordre des onglets. L'agent de fiche et les mails viendront s'ajouter ici.
-// Lot 5a : Ma journée (accueil, comme la maquette), Vue d'ensemble et Journal en tête.
-const VIEWS = [journeeView, ensembleView, contactsView, todoView, projetsView, pistesView, reseauView, journalView];
+// Vues disponibles. Menu aligné sur l'artefact « Pilotage RoseauSI », version 1795691780-62c5
+// (poc/pilotage-2026-11-26.html) : Ma journée, Vue d'ensemble, Pistes, Contacts, Journal, Projets, Actions.
+// L'artefact n'a plus d'entrée Réseau ni Mails (son entrée Contacts regroupe contacts et réseau) : ici Réseau
+// reste une vue à part, juste après Contacts, et Mails reste en grisé « bientôt » à la fin.
+const VIEWS = [journeeView, ensembleView, pistesView, contactsView, reseauView, journalView, projetsView, todoView];
 // Téléphone : quatre onglets en bas (maquette, MOB_TABS) et « Plus » pour les autres vues.
 const MOB_TABS = ["journee", "todo", "pistes", "contacts"];
 const SOON = [{ id: "mails", label: "Mails", icon: "mail" }];
+
+// Pastilles du menu, mêmes règles que l'artefact (fonction badges) :
+//   Actions, rouge : tâches ouvertes dont l'échéance est passée (avant aujourd'hui, Paris) ;
+//   Pistes : relances dues. L'artefact les compte d'après la date libre « Date prochaine action » ; le cockpit
+//   applique la règle décidée le 26/11 (prochaine tâche TO DO liée échue), la même que le Pilotage.
+const BADGE = { todo: { n: null, crit: true }, pistes: { n: null, crit: false } };
+const badge = (v) => BADGE[v.id] ? `<span class="nbadge${BADGE[v.id].crit ? " crit" : ""}" data-badge="${v.id}" ${BADGE[v.id].n ? "" : "hidden"}>${BADGE[v.id].n || ""}</span>` : "";
+let badgesAt = 0;
+async function refreshBadges(force = false) {
+  if (!session || (!force && Date.now() - badgesAt < 60_000)) return;
+  badgesAt = Date.now();
+  const today = new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris" }).format(new Date());
+  const [t, p] = await Promise.allSettled([todoApi.list(), pistesApi.list()]);
+  if (t.status === "fulfilled") BADGE.todo.n = (t.value.tasks || []).filter((x) => x.etat !== "Terminé" && x.etat !== "Annulé" && x.echeance && x.echeance.slice(0, 10) < today).length;
+  if (p.status === "fulfilled") BADGE.pistes.n = p.value.synthese?.relancesDues?.length ?? null;
+  for (const [id, b] of Object.entries(BADGE)) {
+    document.querySelectorAll(`[data-badge="${id}"]`).forEach((el) => {
+      el.hidden = !b.n; el.textContent = b.n || "";
+      el.title = id === "todo" ? `${b.n} action${b.n > 1 ? "s" : ""} en retard` : `${b.n} relance${b.n > 1 ? "s" : ""} due${b.n > 1 ? "s" : ""}`;
+    });
+  }
+}
+
+// Heure de la dernière lecture de chaque vue (relecture au retour sur la vue ou sur l'onglet du navigateur).
+const seenAt = {};
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible" || !current || !session) return;
+  if (Date.now() - (seenAt[current.id] ?? 0) > 2 * 60_000) { seenAt[current.id] = Date.now(); current.reload?.(); refreshBadges(true); }
+});
 
 let session = null;
 let current = null;
 let pendingMsg = ""; // message à garder sur l'écran de connexion (lien expiré…)
 
 function shell() {
-  const nav = (v, on) => `<li><button class="${on ? "on" : ""}" data-nav="${v.id}">${ic(v.icon)}<span class="nl">${esc(v.label)}</span></button></li>`;
+  const nav = (v, on) => `<li><button class="${on ? "on" : ""}" data-nav="${v.id}">${ic(v.icon)}<span class="nl">${esc(v.label)}</span>${badge(v)}</button></li>`;
   const soon = (v) => `<li><button disabled title="Prochain jalon">${ic(v.icon)}<span class="nl">${esc(v.label)}</span><span class="soon">bientôt</span></button></li>`;
   $("#app").innerHTML = `
     <aside id="side">
@@ -45,8 +76,8 @@ function shell() {
         <button class="iconbtn mob-only" data-act="logout" aria-label="Déconnexion">${ic("logout")}</button></div>
       <main id="view"></main>
     </div>
-    <nav id="tabbar" aria-label="Navigation">${VIEWS.filter((v) => MOB_TABS.includes(v.id)).map((v) => `<button class="${v === current ? "on" : ""}" data-nav="${v.id}">${ic(v.icon)}${esc(v.short || v.label)}</button>`).join("")}<button class="${MOB_TABS.includes(current.id) ? "" : "on"}" data-act="more" aria-expanded="false" aria-controls="morelist">${ic("list")}Plus</button></nav>
-    <div id="morelist" class="morelist" hidden>${VIEWS.filter((v) => !MOB_TABS.includes(v.id)).map((v) => `<button class="${v === current ? "on" : ""}" data-nav="${v.id}">${ic(v.icon)}<span>${esc(v.label)}</span></button>`).join("")}</div>`;
+    <nav id="tabbar" aria-label="Navigation">${MOB_TABS.map((id) => VIEWS.find((v) => v.id === id)).map((v) => `<button class="${v === current ? "on" : ""}" data-nav="${v.id}">${ic(v.icon)}${esc(v.short || v.label)}${badge(v)}</button>`).join("")}<button class="${MOB_TABS.includes(current.id) ? "" : "on"}" data-act="more" aria-expanded="false" aria-controls="morelist">${ic("list")}Plus</button></nav>
+    <div id="morelist" class="morelist" hidden>${VIEWS.filter((v) => !MOB_TABS.includes(v.id)).map((v) => `<button class="${v === current ? "on" : ""}" data-nav="${v.id}">${ic(v.icon)}<span class="nl">${esc(v.label)}</span>${badge(v)}</button>`).join("")}${SOON.map((v) => `<button disabled>${ic(v.icon)}<span class="nl">${esc(v.label)}</span><span class="soon">bientôt</span></button>`).join("")}</div>`;
 }
 
 function loginScreen(msg = "", sent = false) {
@@ -77,7 +108,13 @@ function route() {
   if (!session) return;
   const [, view = "journee", id, extra, extra2] = (location.hash || "#/journee").split("/");
   const v = VIEWS.find((x) => x.id === view) ?? VIEWS[0];
-  if (v !== current) { current?.close?.(); current = v; shell(); v.mount($("#view"), $("#dr-body")); mountSearch($("#search")); }
+  if (v !== current) {
+    current?.close?.(); current = v; shell(); v.mount($("#view"), $("#dr-body")); mountSearch($("#search"));
+    // Retour sur une vue déjà lue : relue en arrière-plan si elle date de plus d'une minute (correctif du 26/11).
+    if (seenAt[v.id] && Date.now() - seenAt[v.id] > 60_000) v.reload?.();
+    seenAt[v.id] = Date.now();
+    refreshBadges();
+  }
   if (id) {
     const h = location.hash;
     if (ficheStack.length > 1 && ficheStack[ficheStack.length - 2] === h) ficheStack.pop();
@@ -142,7 +179,9 @@ async function actualiser() {
   } finally {
     syncing = false;
   }
+  if (current) seenAt[current.id] = Date.now();
   current?.reload?.();
+  refreshBadges(true);
 }
 setInterval(() => tickSync(), 30_000);
 
