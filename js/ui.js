@@ -68,6 +68,10 @@ export function ficheTop({ kind, url = null, side = true }) {
  * Écrit le panneau de droite (Mes notes au-dessus, agent en dessous), seulement pour la vue propriétaire.
  * Une note en cours de saisie (pas encore enregistrée) est gardée telle quelle, avec le curseur.
  */
+// Lot 3 : le fil Agent (agent.js) se monte dans le panneau à chaque redessin.
+let agentHook = null;
+export const setAgentHook = (fn) => { agentHook = fn; };
+
 export function renderSide(owner, html) {
   if (!ownsDrawer(owner)) return;
   const side = $("#dr-side");
@@ -80,6 +84,7 @@ export function renderSide(owner, html) {
     if (d) t.value = d.value;
     if (act && act.prop === t.dataset.note) { t.focus({ preventScroll: true }); try { t.setSelectionRange(act.a, act.b); } catch { /* */ } }
   }
+  agentHook?.(side);
 }
 
 /**
@@ -153,11 +158,9 @@ export function sideHTML({ notes = [], notesHint = "", notesMissing = "", ordre 
     : ordre?.etat ? `<div class="ag-prod"><div class="ag-prod-h">${ic("book", "ic-sm")}<b>Agent de production</b><span class="chip">${esc(ordre.etat)}</span></div></div>` : "";
   return `<div class="side-in">
     <section class="side-notes" aria-labelledby="sn-h"><div class="sn-h"><b id="sn-h">Mes notes</b><span class="small muted">${esc(notesHint || "Lues dans Notion, modifiables dans Notion")}</span></div>${notesBody}</section>
-    <section class="side-agent" aria-labelledby="ag-h"><div class="ag-head"><b id="ag-h">Agent de la fiche</b><span class="chip dash">Lot 3</span></div>
+    <section class="side-agent" aria-labelledby="ag-h"><div class="ag-head"><b id="ag-h">Agent de la fiche</b></div>
       ${prod}
-      <div class="ag-soon">${ic("agent")}<p><b>Le fil Agent arrive au lot 3.</b> Tu pourras y poser une question, faire une remarque ou demander un livrable, et chaque échange restera visible ici. Pour l'instant aucune IA n'est appelée.</p></div>
-      <form class="ag-form" onsubmit="return false"><label class="sr" for="ag-in">Message à l'agent (bientôt)</label><textarea id="ag-in" rows="3" disabled placeholder="Disponible au lot 3"></textarea>
-        <div class="ag-foot"><button class="btn sm pri" type="button" disabled>Envoyer</button></div></form></section>
+      <div class="ag-host" data-agent-host></div></section>
   </div>`;
 }
 

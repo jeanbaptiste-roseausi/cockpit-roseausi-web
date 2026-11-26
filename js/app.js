@@ -11,6 +11,7 @@ import { reseauView, bindReseauEvents } from "./reseau.js";
 import { mountSearch } from "./search.js";
 import { $, esc, ic, tickSync, toast, bindNotes } from "./ui.js";
 import { miroirApi } from "./api.js";
+import { bindAgent } from "./agent.js";
 
 // Vues disponibles, dans l'ordre des onglets. L'agent de fiche et les mails viendront s'ajouter ici.
 const VIEWS = [contactsView, todoView, projetsView, pistesView, reseauView];
@@ -164,6 +165,13 @@ bindPistesEvents($("#app"));
 bindPistesDrawerEvents($("#dr-body"));
 bindReseauEvents($("#app"));
 bindNotes($("#dr-side"));
+bindAgent($("#dr-side"));
+// Lot 3 : l'agent (ou une annulation) a écrit dans Notion : la fiche ouverte et la liste sont relues.
+window.addEventListener("cockpit:fiche-modifiee", () => {
+  const [, , id] = (location.hash || "").split("/");
+  if (id && id !== "new" && current?.open) current.open(id);
+  current?.reload?.();
+});
 
 // Erreur renvoyée par Supabase dans l'adresse (lien expiré, déjà utilisé…).
 const urlErr = new URLSearchParams(location.hash.slice(1));

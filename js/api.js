@@ -78,6 +78,14 @@ export const reseauApi = {
   creer: (values) => call("reseau", "/contact", { method: "POST", body: values }),
 };
 
+// Lot 3 : fil Agent des fiches Contact et Tâche (type : "contact" ou "tache").
+export const agentApi = {
+  fil: (type, id) => call("agent", `/${type}/${id}`),
+  envoyer: (type, id, typeMessage, texte) => call("agent", `/${type}/${id}`, { method: "POST", body: { type: typeMessage, texte } }),
+  annuler: (n) => call("agent", `/action/${n}/annuler`, { method: "POST", body: {} }),
+  appliquer: (n) => call("agent", `/action/${n}/appliquer`, { method: "POST", body: {} }),
+};
+
 // Miroir de Notion (lot M) : relecture des pages modifiées dans Notion, à la demande (Actualiser).
 export const miroirApi = {
   sync: () => call("miroir", "/sync", { method: "POST", body: { mode: "incrementale", attendre: true } }),
