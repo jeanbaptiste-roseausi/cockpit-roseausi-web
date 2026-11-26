@@ -1,7 +1,10 @@
 // Vue « Contacts » : liste des contacts actifs et fiche modifiable.
 // Chaque vue du cockpit expose la même interface : { id, label, icon, render(), open(id) }.
-import { contactsApi, todoApi, projetsIndex, pistesApi } from "./api.js";
-import { $, esc, ic, av, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, ficheTabs, parcChip, taSpan, syncOf, syncSpan, staleBanner, natureChip, setNoteSaver , swapHTML } from "./ui.js";
+import { contactsApi, todoApi, projetsIndex, pistesApi, reseauApi } from "./api.js";
+import { $, esc, ic, av, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, ficheTabs, parcChip, taSpan, syncOf, syncSpan, staleBanner, natureChip, setNoteSaver , swapHTML, toastUndo, fmtIcon, initials } from "./ui.js";
+import { invalidateReseau, pLab, pCol, lab } from "./reseau.js";
+import { jetonsHTML } from "./jetons.js";
+import { contenuHTML, bindContenu } from "./contenu.js";
 import { og, ogLegend } from "./origines.js";
 import { refreshPistes, pisteSection } from "./pistes.js";
 import { modeDemande, modesSeg } from "./modes.js";
@@ -140,9 +143,14 @@ function card(c) {
 async function openContact(id) {
   const fromList = S.items?.find((c) => c.id === id);
   const sec = S.open?.id === id ? S.open.sec : "synthese";
-  S.open = { id, contact: fromList ? { ...fromList, partial: true } : null, values: null, saving: new Set(), error: null, tasks: null, pistes: null, sec };
+  S.open = { id, contact: fromList ? { ...fromList, partial: true } : null, values: null, saving: new Set(), error: null, tasks: null, pistes: null, sec, echanges: undefined, rz: undefined, memoire: undefined };
   setDrawerOwner("contacts");
   renderDrawer();
+  // Fiche alignée sur l'artefact (26/11/2026) : échanges du contact et mises en lien, en parallèle.
+  contactsApi.echanges(id).then((r) => { if (S.open?.id === id) { S.open.echanges = r; renderDrawer(); } })
+    .catch(() => { if (S.open?.id === id) { S.open.echanges = "error"; renderDrawer(); } });
+  reseauData().then((r) => { if (S.open?.id === id) { S.open.rz = r; renderDrawer(); } })
+    .catch(() => { if (S.open?.id === id) { S.open.rz = null; renderDrawer(); } });
   // Pistes liées (lot 2, suite), en parallèle.
   pistesApi.ofContact(id).then((r) => { if (S.open?.id === id) { S.open.pistes = r.pistes || []; renderDrawer(); } })
     .catch(() => { if (S.open?.id === id) { S.open.pistes = "error"; renderDrawer(); } });
@@ -165,7 +173,36 @@ async function openContact(id) {
   renderDrawer();
 }
 
-const SECS = { synthese: "Synthèse", pistes: "Pistes", taches: "Tâches", fiche: "Fiche" };
+// ---------------- Fiche contact alignée sur l'artefact (26/11/2026) ----------------
+// Artefact « Pilotage RoseauSI » 1795698879-79f6, dContact : en-tête « + Échange », « Mise en lien », « Piste »,
+// « Action », puis nom, organisation et nature ; onglets Synthèse, Parcours réseau, Échanges, Mails, Pistes,
+// Actions, Mises en lien (Membres pour une organisation ou un réseau), Fiche, Mémoire.
+const SECS = { synthese: "Synthèse", parcours: "Parcours réseau", echanges: "Échanges", mails: "Mails", pistes: "Pistes", taches: "Actions", liens: "Mises en lien", membres: "Membres", fiche: "Fiche", memoire: "Mémoire" };
+const ME_ID = "3dea08ac-5597-811f-b68d-ca88babc6dd9"; // « moi, réseau perso » (fonction reseau)
+const isPerson = (c) => !c?.type || c.type === "Personne";
+const nidC = (x) => String(x || "").replace(/-/g, "").toLowerCase();
+
+// Réseau (recommandations dans les deux sens, parcours des contacts) : lu une fois par minute au plus.
+let RZ = null, RZat = 0;
+function reseauData(force = false) {
+  if (!RZ || force || Date.now() - RZat > 60_000) { RZat = Date.now(); RZ = reseauApi.list().catch((e) => { RZ = null; throw e; }); }
+  return RZ;
+}
+const rzOf = (o, id) => o.rz?.contacts?.find((x) => nidC(x.id) === nidC(id));
+
+function secsOf(c, o) {
+  const openN = Array.isArray(o.tasks) ? o.tasks.filter((x) => !isDone(x)).length : null;
+  const s = [["synthese", SECS.synthese]];
+  if (isPerson(c)) s.push(["parcours", SECS.parcours]);
+  s.push(["echanges", SECS.echanges, Array.isArray(o.echanges?.echanges) ? o.echanges.echanges.length : null]);
+  if (c.type !== "Réseau") s.push(["mails", SECS.mails]);
+  s.push(["pistes", SECS.pistes, Array.isArray(o.pistes) ? o.pistes.length : null], ["taches", SECS.taches, openN]);
+  if (isPerson(c)) { const z = rzOf(o, c.id); s.push(["liens", SECS.liens, z ? z.recommandePar.length + z.aRecommande.length : null]); }
+  else s.push(["membres", SECS.membres, S.items ? membresOf(c).length : null]);
+  s.push(["fiche", SECS.fiche], ["memoire", SECS.memoire]);
+  return s;
+}
+const membresOf = (c) => (S.items || []).filter((x) => (x.rattacheA || []).some((id) => nidC(id) === nidC(c.id))).sort((a, b) => String(a.type).localeCompare(String(b.type)) || String(a.nom).localeCompare(String(b.nom), "fr"));
 
 function renderDrawer() {
   const o = S.open;
@@ -182,55 +219,214 @@ function renderDrawer() {
     drawerHost.innerHTML = o.error ? `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(o.error)}</span></div>` : `<p class="empty">Chargement de la fiche…</p>`;
     return;
   }
-  const tel = c.phone ? c.phone.replace(/\s/g, "") : "";
+  const secs = secsOf(c, o);
+  const cur = secs.some((x) => x[0] === o.sec) ? o.sec : "synthese";
+  if (cur === "memoire" && o.memoire === undefined) loadMemoire(o);
+  // En-tête de l'artefact : + Échange (lot 6, pas encore porté), Mise en lien (personne), Piste, Action.
   const acts = [
-    `<a class="btn sm pri" href="#/todo/new/${o.id}">${ic("plus", "ic-sm")}Tâche</a>`,
-    tel ? `<a class="btn sm" href="tel:${esc(tel)}">${ic("call", "ic-sm")}Appeler</a>` : "",
-    c.email ? `<a class="btn sm" href="mailto:${esc(c.email)}">${ic("mail", "ic-sm")}Écrire</a>` : "",
-    c.linkedin ? `<a class="btn sm" href="${esc(c.linkedin)}" target="_blank" rel="noopener">${ic("ext", "ic-sm")}LinkedIn</a>` : "",
+    `<button class="btn sm pri" disabled title="Créer un échange depuis le cockpit : lot 6, pas encore porté">${ic("plus", "ic-sm")}Échange</button>`,
+    isPerson(c) ? `<button class="btn sm" data-csec="liens">${ic("link", "ic-sm")}Mise en lien</button>` : "",
+    `<a class="btn sm" href="#/pistes/new/contact/${o.id}">${ic("target", "ic-sm")}Piste</a>`,
+    `<a class="btn sm" href="#/todo/new/${o.id}">${ic("todo", "ic-sm")}Action</a>`,
   ].join("");
   const sub = [subOf(c), c.type !== "Personne" ? c.segmentation : null].filter(Boolean).join(" · ");
-  const openN = Array.isArray(o.tasks) ? o.tasks.filter((x) => !isDone(x)).length : null;
-  const cur = SECS[o.sec] ? o.sec : "synthese";
-  const pisN = Array.isArray(o.pistes) ? o.pistes.length : null;
-  const body = { synthese: () => synthese(o), pistes: () => pistesSection(o), taches: () => tasksSection(o), fiche: () => o.values ? form(o) : `<p class="empty">Chargement des champs…</p>` }[cur]();
+  const body = {
+    synthese: () => synthese(o), parcours: () => parcoursSec(o), echanges: () => echangesSec(o, 400), mails: () => mailsSec(c),
+    pistes: () => pistesSection(o), taches: () => tasksSection(o), liens: () => liensSec(o), membres: () => membresSec(c),
+    fiche: () => o.values ? form(o) : `<p class="empty">Chargement des champs…</p>`, memoire: () => memoireSec(o),
+  }[cur]();
   swapHTML(drawerHost, `
     <div class="dh"><div class="dact">${acts}</div>${av(c, "lg")}<div style="flex:1;min-width:0"><h1>${esc(c.nom)}</h1><div class="sub">${esc(sub)}</div>
-      <div class="chips" style="margin-top:8px">${c.type ? `<span class="chip">${esc(c.type)}</span>` : ""}${natureChip(c.nature)}${chip(c.qualif, colorOf("Qualif Prospect", c.qualif))}${c.prio ? chip(c.prio, colorOf("Prio", c.prio)) : ""}</div></div></div>
+      <div class="chips" style="margin-top:8px">${natureChip(c.nature) || (c.type ? `<span class="chip">${esc(c.type)}</span>` : "")}${chip(c.qualif, colorOf("Qualif Prospect", c.qualif))}${c.prio ? chip(c.prio, colorOf("Prio", c.prio)) : ""}</div></div></div>
     ${o.error ? `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(o.error)}</span></div>` : ""}
-    ${ficheTabs([["synthese", SECS.synthese], ["pistes", SECS.pistes, pisN], ["taches", SECS.taches, openN], ["fiche", SECS.fiche]], cur, "data-csec")}
+    ${ficheTabs(secs, cur, "data-csec")}
     <section class="cbody" aria-label="${SECS[cur]}">${body}</section>`);
 }
 
 function synthese(o) {
-  const c = o.contact, rel = c.relations || {};
-  const n = (r) => r ? `${r.n}${r.more ? "+" : ""}` : "0";
+  const c = o.contact;
   const orgs = (c.rattacheA || []).map((id) => ({ id, nom: orgName(id) })).filter((x) => x.nom);
-  const open = Array.isArray(o.tasks) ? o.tasks.filter((x) => !isDone(x)) : null;
-  // Lot 1 bis (POC) : dernier échange direct lu au Journal, prochaine étape (première tâche ouverte, sinon la
-  // prochaine action de la fiche), recommandeurs ou rattachements nommés. Lot 2 (suite) : prochaine étape de la
-  // piste active la plus proche, calculée par la fonction (prochaineEtapePiste).
-  const next = open && open.length ? open.slice().sort((a, b) => (a.echeance || "9").localeCompare(b.echeance || "9"))[0] : null;
+  const open = Array.isArray(o.tasks) ? o.tasks.filter((x) => !isDone(x)).sort((a, b) => (a.echeance || "9").localeCompare(b.echeance || "9")) : null;
+  // Prochaine étape (artefact) : celle d'une piste ouverte d'abord, sinon la première action ouverte, sinon la
+  // prochaine action notée sur la fiche du contact.
+  const pp = c.prochaineEtapePiste, next = open?.[0];
   const ld = c.dernierEchangeDirect;
-  const names = (list) => list.map((x) => x.nom ? `<a href="#/contacts/${x.id}">${esc(x.nom)}</a>` : `<span class="muted">fiche non lue</span>`).join(", ");
-  const people = c.type === "Personne"
+  const names = (list) => list.map((x) => nidC(x.id) === nidC(ME_ID) ? "moi, réseau perso" : x.nom ? `<a href="#/contacts/${x.id}">${esc(x.nom)}</a>` : `<span class="muted">fiche non lue</span>`).join(", ");
+  const people = isPerson(c)
     ? `<div><span>Recommandé par${og("contacts", "Recommandé par")}</span><b>${c.partial || !c.recommandeParNoms ? "…" : c.recommandeParNoms.length ? names(c.recommandeParNoms) : "Contact direct"}</b></div>`
     : `<div><span>Rattachements${og("contacts", "Rattaché à")}</span><b>${c.partial ? "…" : (c.rattacheANoms || []).length ? names(c.rattacheANoms) : orgs.length ? orgs.map((x) => esc(x.nom)).join(", ") : "Aucun"}</b></div>`;
+  const tel = c.phone ? c.phone.replace(/\s/g, "") : "";
+  const coords = [
+    tel ? `<a class="btn sm" href="tel:${esc(tel)}">${ic("call", "ic-sm")}Appeler</a>` : "",
+    c.email ? `<a class="btn sm" href="mailto:${esc(c.email)}">${ic("mail", "ic-sm")}Écrire</a>` : "",
+    c.linkedin ? `<a class="btn sm" href="${esc(c.linkedin)}" target="_blank" rel="noopener">${ic("ext", "ic-sm")}LinkedIn</a>` : "",
+  ].join("");
+  const ech = Array.isArray(o.echanges?.echanges) ? o.echanges.echanges : null;
+  const openPs = Array.isArray(o.pistes) ? o.pistes.filter((p) => /En cours/.test(p.issue || "")) : null;
   return `${ogLegend()}<div class="sfacts">
-      ${c.type === "Personne" || !c.type ? `<div><span>Statut${og("contacts", "Parcours réseau")}</span><b>${c.parcours ? esc(c.parcours) : "Non renseigné"}</b></div>` : ""}
-      ${c.nature == null && !c.partial ? `<div><span>Dernier échange${og("contacts", "Dernier échange")}</span><b>${c.dernierEchange ? esc(fd(c.dernierEchange)) : "Aucun"}</b><small>Propriété de la fiche (journal non lu)</small></div>` : `<div><span>Dernier échange direct${og("contacts", "dernierEchangeDirect")}</span><b>${ld ? esc(fd(ld.date)) : c.partial ? "…" : "Aucun au Journal de bord"}</b>${ld ? `<small><a href="https://www.notion.so/${esc(String(ld.id).replace(/-/g, ""))}" target="_blank" rel="noopener">${esc(ld.titre)}</a></small>` : c.dernierEchange ? `<small>Propriété Dernier échange : ${esc(fd(c.dernierEchange))}</small>` : ""}</div>`}
-      <div><span>Prochaine étape${og("contacts", next ? "prochaineEtape" : "Prochaine action")}</span>${next ? `<b><a href="#/todo/${next.id}">${esc(next.nom)}</a></b>${next.echeance ? `<small>${due(next.echeance)}</small>` : ""}`
+      ${isPerson(c) ? `<div><span>Statut${og("contacts", "Parcours réseau")}</span><b>${c.parcours ? esc(pLab(c.parcours)) : "Non renseigné"}</b></div>` : ""}
+      ${c.nature == null && !c.partial ? `<div><span>Dernier échange${og("contacts", "Dernier échange")}</span><b>${c.dernierEchange ? esc(fd(c.dernierEchange)) : "Aucun"}</b><small>Propriété de la fiche (journal non lu)</small></div>` : `<div><span>Dernier échange direct${og("contacts", "dernierEchangeDirect")}</span><b>${ld ? esc(fd(ld.date)) : c.partial ? "…" : "Aucun au Journal de bord"}</b>${ld ? `<small><a href="#/journal/${esc(ld.id)}">${esc(ld.titre)}</a></small>` : ""}</div>`}
+      <div><span>Prochaine étape${og("contacts", pp ? "prochaineEtapePiste" : next ? "prochaineEtape" : "Prochaine action")}</span>${pp ? `<b><a href="#/pistes/${esc(pp.piste)}">${esc(pp.action || pp.nom)}</a></b><small>${pp.action ? esc(pp.nom) + " " : ""}${pp.date ? due(pp.date) : "sans date"}</small>`
+        : next ? `<b><a href="#/todo/${next.id}">${esc(next.nom)}</a></b>${next.echeance ? `<small>${due(next.echeance)}</small>` : ""}`
         : c.prochaineAction ? `<b>${esc(c.prochaineAction)}</b><small>Prochaine action de la fiche ${due(c.dateProchaineAction)}</small>` : `<b>${open === null ? "…" : "Rien de prévu"}</b>`}</div>
-      ${c.prochaineEtapePiste ? `<div><span>Prochaine étape d'une piste${og("contacts", "prochaineEtapePiste")}</span><b><a href="#/pistes/${esc(c.prochaineEtapePiste.piste)}">${esc(c.prochaineEtapePiste.action || c.prochaineEtapePiste.nom)}</a></b><small>${c.prochaineEtapePiste.action ? esc(c.prochaineEtapePiste.nom) + " " : ""}${c.prochaineEtapePiste.date ? due(c.prochaineEtapePiste.date) : "sans date"}</small></div>` : ""}
       ${people}
-      <div><span>Liens dans Notion${og("contacts", "liens")}</span><b class="small">${n(rel.opportunites)} opportunité(s) · ${n(rel.todo)} tâche(s) · ${n(rel.journal)} échange(s)</b>${c.partial ? "" : `<small>Recommandé par ${n(rel.recommandePar)} · a recommandé ${n(rel.aRecommande)}</small>`}</div>
     </div>
-    ${orgs.length ? `<h3 class="sh">Rattaché à${og("contacts", "Rattaché à")}</h3><div class="chips">${orgs.map((x) => `<a class="chip" href="#/contacts/${x.id}">${esc(x.nom)}</a>`).join("")}</div>` : ""}
-    <h3 class="sh">À faire ${open ? `<button class="lnk" data-csec="taches">${open.length}</button>` : ""}</h3>
-    ${open === null ? `<p class="empty">Chargement des tâches…</p>` : !Array.isArray(o.tasks) ? `<p class="empty">Tâches indisponibles pour l'instant.</p>` : open.length ? `<div class="list">${open.slice(0, 3).map(taskRow).join("")}</div>${open.length > 3 ? `<p class="small muted"><button class="lnk" data-csec="taches">Voir les ${open.length} tâches ouvertes</button></p>` : ""}` : `<p class="empty">Aucune tâche ouverte.</p>`}
+    ${coords ? `<div class="dact" style="margin:4px 0 14px">${coords}</div>` : ""}
+    ${open && open.length ? `<h3 class="sh">À faire <button class="lnk" data-csec="taches">${open.length}</button></h3><div class="list">${open.slice(0, 3).map(taskRow).join("")}</div>` : open === null ? `<p class="empty">Chargement des actions…</p>` : ""}
+    ${openPs && openPs.length ? `<h3 class="sh">Pistes ouvertes</h3><div class="list">${openPs.slice(0, 3).map(pisteRow).join("")}</div>` : ""}
+    <h3 class="sh">Derniers échanges ${ech ? `<button class="lnk" data-csec="echanges">${ech.length}</button>` : ""}</h3>${echangesSec(o, 3, true)}
     ${c.syntheseAgent ? `<h3 class="sh">Synthèse agent${og("contacts", "Synthèse agent")}</h3><p class="notes">${esc(c.syntheseAgent)}</p>` : ""}
-    ${c.modifie ? `<p class="small muted" style="margin-top:14px">Modifié dans Notion le ${esc(new Date(c.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}${og("contacts", "Modifié le")}. Les notes se modifient dans le panneau Mes notes.</p>` : ""}
-    ${c.nature ? `<p class="small muted">Nature${og("contacts", "nature")} calculée par le cockpit : client ou partenaire si le contact est relié par une tâche à une mission en cours ou terminée, ou lié à une piste gagnée ou partenaire, réseau s'il a recommandé quelqu'un ou s'il est hors parcours, prospect sinon.</p>` : ""}`;
+    ${c.modifie ? `<p class="small muted" style="margin-top:14px">Modifié dans Notion le ${esc(new Date(c.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}${og("contacts", "Modifié le")}. Les notes se modifient dans le panneau Mes notes.</p>` : ""}`;
+}
+
+// ---- Parcours réseau (artefact, parcoursSec) ----
+const P_MAIN = ["Recommandé", "À contacter", "Contacté", "À relancer", "Échange fait"];
+const P_SIDE = ["Relais", "Opportunité créée", "Nurturing", "Pas pertinent", "Contact"];
+
+function parcoursSec(o) {
+  const c = o.contact, opts = S.schema?.editable?.["Parcours réseau"]?.options || [];
+  const opt = (l) => opts.find((v) => lab(v) === l);
+  const curL = lab(c.parcours), busy = o.saving.has("parcours"), dis = busy || !o.values ? "disabled" : "";
+  const idx = P_MAIN.indexOf(curL);
+  const frise = `<nav class="pfrise cfrise" aria-label="Étape du parcours réseau">${P_MAIN.map((l, i) => { const v = opt(l); return v ? `<button type="button" class="${i === idx ? "on" : i < idx ? "done" : ""}" data-cparc="${esc(v)}" aria-pressed="${i === idx}" ${dis}><span><i class="dot" style="background:${pCol(v)}"></i>${esc(pLab(v))}</span></button>` : ""; }).join("")}</nav>
+    <div class="pexits"><span>Sorties</span><button type="button" class="${!c.parcours ? "on" : ""}" data-cparc="" aria-pressed="${!c.parcours}" ${dis}>Non suivi</button>${P_SIDE.map((l) => { const v = opt(l); return v ? `<button type="button" class="${["Relais", "Opportunité créée"].includes(l) ? "win " : ""}${curL === l ? "on" : ""}" data-cparc="${esc(v)}" aria-pressed="${curL === l}" ${dis}><i class="dot" style="background:${pCol(v)}"></i>${esc(pLab(v))}</button>` : ""; }).join("")}</div>`;
+  const ld = c.dernierEchangeDirect;
+  const late = c.dateProchaineAction && String(c.dateProchaineAction).slice(0, 10) < new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris" }).format(new Date());
+  const pBusy = o.saving.has("pa");
+  const z = rzOf(o, c.id);
+  return `${frise}${busy ? `<p class="small muted">Enregistrement dans Notion…</p>` : ""}
+    <form class="form" id="cp-form" onsubmit="return false" style="margin-top:6px">
+      <div class="fld wide"><span class="lb">Dernier échange</span><b>${ld ? `<a href="#/journal/${esc(ld.id)}">${esc(fd(ld.date))}</a> · ${esc(ld.titre)}` : c.dernierEchange ? esc(fd(c.dernierEchange)) : "Aucun noté"}</b></div>
+      <div class="fld"><label for="cp-pa">Prochaine action${og("contacts", "Prochaine action")}</label><input id="cp-pa" value="${esc(o.paDraft?.pa ?? c.prochaineAction ?? "")}" placeholder="Appeler, envoyer un mail, proposer un café…" autocomplete="off" ${pBusy ? "disabled" : ""}></div>
+      <div class="fld"><label for="cp-dpa">Date${og("contacts", "Date prochaine action")} ${late ? `<span class="chip c-crit">en retard</span>` : ""}</label><input type="date" id="cp-dpa" value="${esc(String(o.paDraft?.dpa ?? c.dateProchaineAction ?? "").slice(0, 10))}" ${pBusy ? "disabled" : ""}></div>
+      <div class="mfoot wide"><button class="btn sm pri" type="button" data-cpact="pa" ${pBusy || !o.values ? "disabled" : ""}>${pBusy ? "Enregistrement…" : "Enregistrer dans Notion"}</button>${lab(c.parcours) !== "Opportunité créée" ? `<a class="btn sm" href="#/pistes/new/contact/${o.id}">${ic("target", "ic-sm")}Créer la piste</a>` : ""}</div></form>
+    ${recoBlocks(o, z, true)}`;
+}
+
+/** Recommandé par, A recommandé, gestes de mise en lien et carte : communs à Parcours réseau et Mises en lien. */
+function recoBlocks(o, z, carte) {
+  const c = o.contact;
+  if (o.rz === undefined) return `<p class="empty">Chargement des mises en lien…</p>`;
+  if (!o.rz) return `<p class="empty">Mises en lien indisponibles pour l'instant.</p>`;
+  if (!z) return `<p class="small muted">Ce contact n'est pas dans les contacts actifs du réseau : mises en lien à voir dans Notion.</p>`;
+  const busy = o.saving.has("lien");
+  const chipC = (id) => nidC(id) === nidC(ME_ID) ? `<span class="chip c-acc">${ic("home", "ic-sm")} Moi, réseau perso</span>` : (() => { const x = rzOf(o, id); return x ? `<a class="chip" href="#/contacts/${x.id}">${esc(x.nom.trim())}</a>` : `<span class="chip">Contact</span>`; })();
+  const pers = (o.rz.contacts || []).filter((x) => x.type !== "Organisation" && x.type !== "Réseau" && nidC(x.id) !== nidC(c.id));
+  const choices = (excl) => pers.filter((x) => !excl.some((e) => nidC(e) === nidC(x.id))).map((x) => ({ id: x.id, nom: x.nom.trim(), sub: x.parcours ? pLab(x.parcours) : "" }));
+  const toRows = z.aRecommande.map((id) => rzOf(o, id)).filter(Boolean);
+  return `<h3 class="sh">Recommandé par${og("contacts", "Recommandé par")}</h3>${z.recommandePar.length ? `<div class="chips">${z.recommandePar.map(chipC).join("")}</div>` : `<p class="muted">Contact direct</p>`}
+    <div class="fld" style="margin-top:8px"><span class="lb">Ajouter qui te l'a recommandé</span><div class="recoby-row">${z.recommandePar.some((id) => nidC(id) === nidC(ME_ID)) ? "" : `<button type="button" class="btn sm" data-cpact="moi" ${busy ? "disabled" : ""}>${ic("home", "ic-sm")}Moi, réseau perso</button>`}
+      ${jetonsHTML({ id: "cp-recoby", label: "Qui te l'a recommandé", placeholder: "Chercher une personne", busy, items: [], choices: choices(z.recommandePar), onAdd: (id) => relier(o, id, c.id) })}</div></div>
+    <h3 class="sh">A recommandé${og("contacts", "A recommandé")}</h3>${toRows.length ? `<div class="list">${toRows.map((t) => `<a class="row" href="#/contacts/${t.id}"><div class="rm"><div class="rt">${esc(t.nom.trim())}</div></div><div class="rr">${t.parcours ? parcPill(t.parcours) : ""}</div></a>`).join("")}</div>` : `<p class="muted">Personne pour l'instant</p>`}
+    <div class="fld" style="margin-top:8px"><span class="lb">Ajouter un contact qu'il ou elle t'a donné</span>${jetonsHTML({ id: "cp-reco", label: "Contact recommandé", placeholder: "Chercher le contact recommandé", busy, items: [], choices: choices(z.aRecommande), onAdd: (id) => relier(o, c.id, id) })}</div>
+    <p class="small muted" style="margin-top:6px">Une mise en lien s'enregistre aussitôt dans Notion (« Recommandé par » du contact recommandé). Elle se retire dans Notion. Les étapes du parcours ne changent pas d'office.</p>
+    ${carte && (z.recommandePar.length || z.aRecommande.length) ? `<h3 class="sh">Carte</h3>${egoSVG(o, z)}` : ""}`;
+}
+const parcPill = (v) => `<span class="chip parc"><i class="dot" style="background:${pCol(v)}"></i>${esc(pLab(v))}</span>`;
+
+async function relier(o, recommandeur, recommande) {
+  if (o.saving.has("lien")) return;
+  o.saving.add("lien"); renderDrawer();
+  try {
+    const r = await reseauApi.relier(recommandeur, recommande);
+    toast(r.deja ? "Ces deux contacts étaient déjà reliés." : "Mise en lien enregistrée dans Notion.");
+    o.rz = await reseauData(true).catch(() => o.rz);
+    invalidateReseau();
+    const d = await contactsApi.get(o.id).catch(() => null);
+    if (d && S.open === o) { o.contact = d.contact; o.values = d.values; }
+  } catch (e) { toast(e.message, "err"); }
+  finally { o.saving.delete("lien"); renderDrawer(); }
+}
+
+async function setParcours(o, v, undoable = true) {
+  const c = o.contact, was = c.parcours || "";
+  if (was === v || o.saving.has("parcours")) return;
+  o.saving.add("parcours"); renderDrawer();
+  try {
+    const r = await contactsApi.update(o.id, { "Parcours réseau": v || null });
+    if (S.open === o) { o.contact = r.contact; o.values = r.values; }
+    syncItem(r.contact); invalidateReseau(); RZ = null;
+    const n = String(c.nom).trim(), l = v ? pLab(v) : "Non suivi";
+    if (undoable) toastUndo(`${n}, ${l}. Enregistré dans Notion.`, () => setParcours(o, was, false));
+    else toast(`${n} revient à ${was ? pLab(was) : "Non suivi"}.`);
+  } catch (e) { toast(e.message, "err"); }
+  finally { o.saving.delete("parcours"); renderDrawer(); }
+}
+
+async function saveProchaine(o) {
+  const pa = $("#cp-pa", drawerHost)?.value.trim() ?? "", dpa = $("#cp-dpa", drawerHost)?.value ?? "";
+  const c = o.contact;
+  if (pa === (c.prochaineAction || "") && dpa === String(c.dateProchaineAction || "").slice(0, 10)) { toast("Rien à enregistrer."); return; }
+  o.saving.add("pa"); o.paDraft = { pa, dpa }; renderDrawer();
+  try {
+    const r = await contactsApi.update(o.id, { "Prochaine action": pa || null, "Date prochaine action": dpa || null });
+    if (S.open === o) { o.contact = r.contact; o.values = r.values; o.paDraft = null; }
+    syncItem(r.contact); invalidateReseau();
+    toast("Prochaine action enregistrée dans Notion.");
+  } catch (e) { toast(e.message, "err"); }
+  finally { o.saving.delete("pa"); renderDrawer(); }
+}
+
+// ---- Échanges (artefact, timeline : directs, puis via la piste) ----
+function echangesSec(o, max, court = false) {
+  const e = o.echanges;
+  if (e === undefined) return `<p class="empty">Chargement des échanges…</p>`;
+  if (e === "error" || !e.lu) return `<p class="empty">Échanges indisponibles pour l'instant (miroir du Journal).</p>`;
+  if (!e.echanges.length) return `<p class="empty">Aucun échange rattaché.</p>`;
+  const list = e.echanges.slice(0, max);
+  return `<div class="list">${list.map((x) => `<a class="row" href="#/journal/${x.id}">${fmtIcon(x.format)}<div class="rm"><div class="rt">${esc(x.titre)}</div><div class="rs">${esc(fd(x.date))}${x.format ? " · " + esc(String(x.format).replace(/^[^\p{L}\p{N}]+/u, "")) : ""}</div></div>
+    <div class="rr">${x.via === "piste" ? `<span class="chip dash" title="Contact déduit via la piste${x.piste && e.pistesNoms[x.piste] ? " « " + esc(e.pistesNoms[x.piste]) + " »" : ""}">via la piste</span>` : ""}</div></a>`).join("")}</div>
+    ${!court && e.echanges.length > max ? `<p class="small muted" style="margin-top:6px">Et ${e.echanges.length - max} échanges plus anciens.</p>` : ""}`;
+}
+
+// ---- Mails : lot 5b (Gmail), pas encore dans main ----
+const mailsSec = (c) => `<div class="banner dashed">${ic("mail", "ic-sm")}<span><b>Accès Google à relier.</b> Les mails échangés avec ${esc(String(c.nom).trim())}${c.email ? ` (${esc(c.email)})` : ""} s'afficheront ici quand la liaison Gmail (lot 5b) sera en ligne.</span></div>`;
+
+// ---- Mises en lien (personne) et Membres (organisation, réseau) ----
+const liensSec = (o) => recoBlocks(o, rzOf(o, o.contact.id), true);
+function membresSec(c) {
+  if (!S.items) return `<p class="empty">Chargement des contacts…</p>`;
+  const m = membresOf(c);
+  return m.length ? `<div class="list">${m.map(row).join("")}</div>` : `<p class="empty">Aucune personne rattachée.</p>`;
+}
+
+// ---- Mémoire : corps de la page Notion du contact (artefact, pageInline), en lecture seule ----
+async function loadMemoire(o, frais = false) {
+  o.memoire = null; o.memErr = null;
+  try { const r = await contactsApi.memoire(o.id, frais); if (S.open === o) o.memoire = r; }
+  catch (e) { if (S.open === o) { o.memoire = false; o.memErr = e.message; } }
+  if (S.open === o && o.sec === "memoire") renderDrawer();
+}
+function memoireSec(o) {
+  const c = o.contact;
+  return `<p class="small muted" style="margin:0 0 8px">Corps de la page Notion du contact (lecture seule) : ce qu'on y a noté et ce que les agents y écrivent. <button class="lnk" data-cpact="memoire-frais">Relire dans Notion</button></p>
+    ${contenuHTML(o.memoire || null, { entree: o.id, url: c.url, erreur: o.memoire === false ? (o.memErr || "Notion n'a pas répondu.") : null, vide: "Rien dans la page Notion de ce contact.", src: "contacts" })}`;
+}
+
+// ---- Carte des mises en lien (artefact, egoSVG) ----
+function egoSVG(o, z) {
+  const c = o.contact;
+  const nat = (id) => S.items?.find((x) => nidC(x.id) === nidC(id))?.nature || "prospect";
+  const by = z.recommandePar.slice(0, 4), to = z.aRecommande.slice(0, 5);
+  const orgs = (c.rattacheA || []).slice(0, 4).map((id) => ({ id, nom: orgName(id) })).filter((x) => x.nom);
+  const W = 520, H = 250, cx = W / 2, cy = 128;
+  const css = getComputedStyle(document.documentElement);
+  const colk = (k) => css.getPropertyValue({ client: "--n-client", reseau: "--n-reseau", prospect: "--n-prospect", org: "--n-org", res: "--n-res" }[k] || "--n-prospect").trim();
+  const col = (arr, x, y0, y1) => arr.map((id, i) => ({ id, x, y: arr.length === 1 ? (y0 + y1) / 2 : y0 + (y1 - y0) * i / (arr.length - 1) }));
+  const L = col(by, 150, 50, 200), R = col(to, W - 150, 40, 215);
+  const T = orgs.map((x, i) => ({ ...x, x: orgs.length === 1 ? cx : cx - 70 + 140 * i / (orgs.length - 1), y: 34 }));
+  const cut = (s, n) => s.length > n ? s.slice(0, n - 1) + "…" : s;
+  const nm = (id) => nidC(id) === nidC(ME_ID) ? "Moi, réseau perso" : (rzOf(o, id)?.nom || "Contact").trim();
+  const ln = (x1, y1, x2, y2, reco, sh = 0) => { let ex = x2, ey = y2; if (sh) { const dx = x2 - x1, dy = y2 - y1, l = Math.hypot(dx, dy); ex = x2 - dx / l * sh; ey = y2 - dy / l * sh; } return `<line x1="${x1}" y1="${y1}" x2="${ex}" y2="${ey}" stroke="${reco ? "var(--edge-reco)" : "var(--edge)"}" stroke-width="${reco ? 2 : 1.3}" ${reco ? `marker-end="url(#ea)"` : ""}/>`; };
+  let s = `<svg class="ego" viewBox="0 0 ${W} ${H}" role="img" aria-label="Mises en lien de ${esc(c.nom)}"><defs><marker id="ea" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--edge-reco)"/></marker></defs>`;
+  L.forEach((n) => s += ln(n.x, n.y, cx, cy, true, 26)); R.forEach((n) => s += ln(cx, cy, n.x, n.y, true, 12)); T.forEach((n) => s += ln(cx, cy, n.x, n.y, false));
+  if (L.length) s += `<text class="eg-t" x="150" y="16" text-anchor="end">Recommandé par</text>`;
+  if (R.length) s += `<text class="eg-t" x="${W - 150}" y="16" text-anchor="start">A présenté</text>`;
+  const pnode = (n, a) => `<a href="#/contacts/${n.id}"><circle cx="${n.x}" cy="${n.y}" r="9" fill="${colk(nidC(n.id) === nidC(ME_ID) ? "reseau" : nat(n.id))}"/><text x="${n.x + (a === "end" ? -14 : 14)}" y="${n.y + 4}" text-anchor="${a}">${esc(cut(nm(n.id), 20))}</text></a>`;
+  L.forEach((n) => s += pnode(n, "end")); R.forEach((n) => s += pnode(n, "start"));
+  T.forEach((n) => s += `<a href="#/contacts/${n.id}"><rect x="${n.x - 8}" y="${n.y - 8}" width="16" height="16" rx="3" fill="${colk("org")}"/><text x="${n.x}" y="${n.y - 13}" text-anchor="middle">${esc(cut(n.nom, 22))}</text></a>`);
+  s += `<circle cx="${cx}" cy="${cy}" r="22" fill="${colk(c.nature || "prospect")}"/><text x="${cx}" y="${cy + 4}" text-anchor="middle" style="font-size:12px">${esc(initials(c.nom))}</text></svg>`;
+  return s;
 }
 
 const taskRow = (x) => `<a class="row" href="#/todo/${x.id}"><div class="rm"><div class="rt ${isDone(x) ? "strike" : ""}">${esc(x.nom)}</div>
@@ -238,7 +434,7 @@ const taskRow = (x) => `<a class="row" href="#/todo/${x.id}"><div class="rm"><di
 
 function tasksSection(o) {
   const t = o.tasks;
-  const head = `<div class="card-h"><span class="small muted" style="flex:1">Tâches liées dans la base TO DO</span><a class="btn sm" href="#/todo/new/${o.id}">${ic("plus", "ic-sm")}Tâche</a></div>`;
+  const head = `<div class="card-h"><span class="small muted" style="flex:1">Actions liées dans la base TO DO</span><a class="btn sm" href="#/todo/new/${o.id}">${ic("plus", "ic-sm")}Action</a></div>`;
   if (t === null) return `${head}<p class="empty">Chargement des tâches…</p>`;
   if (t === "error") return `${head}<p class="empty">Tâches indisponibles pour l'instant.</p>`;
   const open = t.filter((x) => !isDone(x)), done = t.filter(isDone);
@@ -436,8 +632,22 @@ export function bindContactEvents(root) {
 }
 export function bindDrawerEvents(root) {
   root.addEventListener("click", (e) => {
+    if (!ownsDrawer("contacts") || !S.open || S.open.isNew) return;
+    const o = S.open;
     const b = e.target.closest("[data-csec]");
-    if (b && ownsDrawer("contacts") && S.open) { S.open.sec = b.dataset.csec; renderDrawer(); root.scrollTop = 0; }
+    if (b) { o.sec = b.dataset.csec; renderDrawer(); root.scrollTop = 0; return; }
+    const p = e.target.closest("[data-cparc]");
+    if (p && !p.disabled) { setParcours(o, p.dataset.cparc); return; }
+    const a = e.target.closest("[data-cpact]")?.dataset.cpact;
+    if (a === "pa") saveProchaine(o);
+    else if (a === "moi") relier(o, ME_ID, o.id);
+    else if (a === "memoire-frais") loadMemoire(o, true);
+  });
+  // Mémoire : bascules et sous-pages lues à l'ouverture (même rendu que le compte rendu du Journal).
+  bindContenu(root, () => { if (ownsDrawer("contacts") && S.open?.sec === "memoire") renderDrawer(); }, "contacts");
+  root.addEventListener("input", (e) => {
+    if (!ownsDrawer("contacts") || !S.open || (e.target.id !== "cp-pa" && e.target.id !== "cp-dpa")) return;
+    S.open.paDraft = { pa: $("#cp-pa", root)?.value ?? "", dpa: $("#cp-dpa", root)?.value ?? "" };
   });
   root.addEventListener("change", (e) => { if (e.target.dataset?.cprop) saveField(e.target); });
   root.addEventListener("keydown", (e) => {

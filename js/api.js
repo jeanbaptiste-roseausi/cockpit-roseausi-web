@@ -44,6 +44,10 @@ export const contactsApi = {
   get: (id) => call("contacts", `/${id}`),
   aCreer: () => call("contacts", "/a-creer"),
   doublons: (nom) => call("contacts", `/doublons?nom=${encodeURIComponent(nom)}`),
+  // Fiche alignée sur l'artefact (26/11/2026) : échanges du contact, Mémoire (corps de la page Notion).
+  echanges: (id) => call("contacts", `/${id}/echanges`),
+  memoire: (id, frais = false) => call("contacts", `/${id}/memoire${frais ? "?frais=1" : ""}`),
+  memoireBloc: (id, bloc) => call("contacts", `/${id}/memoire/${bloc}`),
   create: (values, { piste = null, confirmerDoublon = false } = {}) => call("contacts", "", { method: "POST", body: { values, ...(piste ? { piste } : {}), confirmerDoublon } }),
   update: (id, changes, avant) => call("contacts", `/${id}`, { method: "PATCH", body: { changes, ...(avant ? { avant } : {}) } }),
 };

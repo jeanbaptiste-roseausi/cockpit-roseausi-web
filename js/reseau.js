@@ -71,7 +71,7 @@ const NEXT = { "Recommandé": "À contacter", "À contacter": "Contacté", "Cont
 const optOf = (l) => S.parcours.find((v) => lab(v) === l);
 // « Sans suite » passe du rouge au gris (artefact) : le rouge reste réservé aux échéances.
 const PARC_COL = { "Recommandé": "#8a6a4a", "À contacter": "#7a7a7a", "Contacté": "#b8902a", "À relancer": "#7b5aa6", "Échange fait": "#c0702a", "Relais": "#2e8b6a", "Opportunité créée": "#1f7a5a", "Nurturing": "#3a6fa8", "Pas pertinent": "#8a9291", "Contact": "#b0567a" };
-const pCol = (v) => PARC_COL[lab(v)] || "#7a7a7a";
+export const pCol = (v) => PARC_COL[lab(v)] || "#7a7a7a";
 // Libellés de l'artefact ; la valeur enregistrée dans Notion ne change pas (donnée au survol).
 const DISP = { "Opportunité créée": "Piste créée", "Pas pertinent": "Sans suite", "Contact": "Hors parcours" };
 export const pLab = (v) => DISP[lab(v)] || lab(v);

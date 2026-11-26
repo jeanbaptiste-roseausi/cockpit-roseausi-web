@@ -924,3 +924,14 @@ body.agp-ancre .app { padding-right: calc(var(--agp-w) + 32px); }
   .pgbody .pgtbl.stack td { border: 0; padding: 4px 10px; }
   .pgbody .pgtbl.stack td[data-l]::before { content: attr(data-l); display: block; font-size: 11.5px; font-weight: 700; color: var(--ink-muted); text-transform: uppercase; letter-spacing: .02em; }
 }
+
+/* ---- Fiche contact alignée sur l'artefact (26/11/2026) : frise du parcours, mises en lien ---- */
+.cfrise button { min-height: 42px; }
+.cfrise button.done { background: var(--teal-50); color: var(--teal-strong); }
+.cfrise button:disabled, .pexits button:disabled { cursor: default; opacity: .7; }
+.recoby-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.recoby-row .picker { flex: 1 1 240px; min-width: 0; }
+.ego { width: 100%; height: auto; display: block; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-panel); }
+.ego text { font: 700 10.5px var(--font-body); fill: var(--ink); }
+.ego .eg-t { font: 700 9px var(--font-body); fill: var(--ink-subtle); letter-spacing: 1px; }
+.ego a:hover text { text-decoration: underline; }

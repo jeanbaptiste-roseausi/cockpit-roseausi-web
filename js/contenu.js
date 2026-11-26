@@ -2,7 +2,8 @@
 // « Pilotage RoseauSI » (mdToHtml, classe pgbody) : titres, listes, gras, liens, tableaux simples.
 // Les blocs arrivent simplifiés de la fonction journal (GET /journal/:id/contenu) ; tout texte est échappé ici.
 // Les bascules (transcript) et les sous-pages se lisent quand on les ouvre (GET /journal/:id/contenu/:bloc).
-import { journalApi } from "./api.js";
+// 26/11/2026 : réutilisé pour l'onglet Mémoire de la fiche contact (GET /contacts/:id/memoire), via `src`.
+import { journalApi, contactsApi } from "./api.js";
 import { esc, ic } from "./ui.js";
 
 const ROUTE = { contacts: "contacts", todo: "todo", projets: "projets", pistes: "pistes", journal: "journal" };
@@ -114,18 +115,21 @@ function table(b, ctx) {
 export function contenuHTML(c, o) {
   if (o.erreur) return `<div class="pgbody"><p class="empty">${esc(o.erreur)}</p></div>`;
   if (!c) return `<div class="pgbody"><p class="empty">Chargement depuis Notion…</p></div>`;
-  if (c.vide) return `<div class="pgbody"><p class="empty">Pas de compte rendu dans Notion.</p></div>`;
+  if (c.vide) return `<div class="pgbody"><p class="empty">${esc(o.vide || "Pas de compte rendu dans Notion.")}</p></div>`;
   const ctx = { entree: o.entree, url: o.url, fiches: c.fiches || {} };
-  return `<div class="pgbody" data-pgentree="${esc(o.entree)}">${blocsHTML(c.blocs, ctx)}${c.tronque ? suite(ctx) : ""}</div>`;
+  return `<div class="pgbody" data-pgentree="${esc(o.entree)}" data-pgsrc="${esc(o.src || "journal")}">${blocsHTML(c.blocs, ctx)}${c.tronque ? suite(ctx) : ""}</div>`;
 }
 
+const LIRE_BLOC = { journal: (e, b) => journalApi.bloc(e, b), contacts: (e, b) => contactsApi.memoireBloc(e, b) };
+
 /** Ouverture d'une bascule ou d'une sous-page : lecture à la demande, puis redessin par la vue. */
-export function bindContenu(root, redessiner) {
+export function bindContenu(root, redessiner, src = "journal") {
   root.addEventListener("toggle", async (e) => {
     const d = e.target;
     if (!(d instanceof HTMLDetailsElement) || !d.dataset.bloc) return;
-    const entree = d.closest("[data-pgentree]")?.dataset.pgentree;
-    if (!entree) return;
+    const box = d.closest("[data-pgentree]");
+    const entree = box?.dataset.pgentree;
+    if (!entree || (box.dataset.pgsrc || "journal") !== src) return;
     const k = `${entree}:${d.dataset.bloc}`;
     if (!("differe" in d.dataset)) { if (d.open) { OUVERTS.add(k); OUVERTS.delete(`ferme:${k}`); } else { OUVERTS.delete(k); OUVERTS.add(`ferme:${k}`); } return; }
     if (!d.open) { OUVERTS.delete(k); return; }
@@ -134,7 +138,7 @@ export function bindContenu(root, redessiner) {
     EN_COURS.add(k);
     const kids = d.querySelector(":scope > [data-kids]");
     if (kids) kids.innerHTML = `<p class="empty">Chargement depuis Notion…</p>`;
-    try { const r = await journalApi.bloc(entree, d.dataset.bloc); LUS.set(k, { blocs: r.blocs, fiches: r.fiches || {}, tronque: r.tronque }); }
+    try { const r = await LIRE_BLOC[src](entree, d.dataset.bloc); LUS.set(k, { blocs: r.blocs, fiches: r.fiches || {}, tronque: r.tronque }); }
     catch (err) { LUS.set(k, { erreur: err.message || "Notion n'a pas répondu." }); }
     finally { EN_COURS.delete(k); }
     redessiner();
