@@ -1,16 +1,18 @@
 // Point d'entrée : connexion, navigation par adresse, fiche plein écran, recherche globale.
 // Adresses : #/contacts, #/contacts/<id>, #/todo, #/todo/<id>, #/todo/new, #/todo/new/<id du contact>,
-// #/todo/new/projet/<id du projet>, #/projets, #/projets/<id>.
+// #/todo/new/projet/<id du projet>, #/projets, #/projets/<id>, #/pistes, #/pistes/<id> (lot 2), #/reseau (lot 2).
 import { onAuth, sendMagicLink, signOut, isAllowed, currentSession, consumeUrlTokens } from "./session.js";
 import { contactsView, bindContactEvents, bindDrawerEvents } from "./contacts.js";
 import { todoView, bindTodoEvents, bindTodoDrawerEvents } from "./todo.js";
 import { projetsView, bindProjetsEvents, bindProjetsDrawerEvents } from "./projets.js";
+import { pistesView, bindPistesEvents, bindPistesDrawerEvents } from "./pistes.js";
+import { reseauView, bindReseauEvents } from "./reseau.js";
 import { mountSearch } from "./search.js";
 import { $, esc, ic, tickSync, toast } from "./ui.js";
 import { miroirApi, simulation } from "./api.js";
 
 // Vues disponibles, dans l'ordre des onglets. L'agent de fiche et les mails viendront s'ajouter ici.
-const VIEWS = [contactsView, todoView, projetsView];
+const VIEWS = [contactsView, todoView, projetsView, pistesView, reseauView];
 const SOON = [{ id: "mails", label: "Mails", icon: "mail" }];
 
 let session = null;
@@ -22,7 +24,7 @@ function shell() {
   const soon = (v) => `<li><button disabled title="Prochain jalon">${ic(v.icon)}<span class="nl">${esc(v.label)}</span><span class="soon">bientôt</span></button></li>`;
   $("#app").innerHTML = `
     <aside id="side">
-      <div class="brand"><div class="wm">RoseauSI</div><div class="brand-sub">Cockpit de pilotage</div><span class="poc-tag">Lot 1</span></div>
+      <div class="brand"><div class="wm">RoseauSI</div><div class="brand-sub">Cockpit de pilotage</div><span class="poc-tag">Lot 2</span></div>
       <ul class="nav">${VIEWS.map((v) => nav(v, v === current)).join("")}${SOON.map(soon).join("")}</ul>
       <div class="side-foot"><span>Connecté : <b>${esc(session?.user?.email)}</b></span>
         <div class="side-row"><button class="side-btn" data-act="reload">${ic("refresh", "ic-sm")}Actualiser</button><button class="side-btn" data-act="logout">${ic("logout", "ic-sm")}Déconnexion</button></div></div>
@@ -36,7 +38,7 @@ function shell() {
       ${simulation() ? `<div class="banner sim">${ic("alert", "ic-sm")}<span><b>Simulation : Notion indisponible.</b> Les lectures viennent du miroir, les modifications sont refusées. Pour arrêter, ouvre l'adresse avec <code>?simuler=non</code>.</span></div>` : ""}
       <main id="view"></main>
     </div>
-    <nav id="tabbar" aria-label="Navigation">${VIEWS.map((v) => `<button class="${v === current ? "on" : ""}" data-nav="${v.id}">${ic(v.icon)}${esc(v.label)}</button>`).join("")}${SOON.map((v) => `<button disabled>${ic(v.icon)}${esc(v.label)}</button>`).join("")}</nav>`;
+    <nav id="tabbar" aria-label="Navigation">${VIEWS.map((v) => `<button class="${v === current ? "on" : ""}" data-nav="${v.id}">${ic(v.icon)}${esc(v.short || v.label)}</button>`).join("")}</nav>`;
 }
 
 function loginScreen(msg = "", sent = false) {
@@ -157,6 +159,9 @@ bindTodoEvents($("#app"));
 bindTodoDrawerEvents($("#dr-body"));
 bindProjetsEvents($("#app"));
 bindProjetsDrawerEvents($("#dr-body"));
+bindPistesEvents($("#app"));
+bindPistesDrawerEvents($("#dr-body"));
+bindReseauEvents($("#app"));
 
 // Erreur renvoyée par Supabase dans l'adresse (lien expiré, déjà utilisé…).
 const urlErr = new URLSearchParams(location.hash.slice(1));

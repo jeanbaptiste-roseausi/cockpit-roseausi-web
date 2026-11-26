@@ -191,7 +191,7 @@ function infoSection(p, full) {
   const opp = full ? p.opportunitesListe || [] : [];
   // Liens de la relation qui ne mènent pas à une page de la base visée (page déplacée, corbeille).
   const hors = (n, k, base) => full && n > k ? `<p class="nr">${n - k} lien${n - k > 1 ? "s" : ""} de la relation mène${n - k > 1 ? "nt" : ""} à une page hors de la base ${base} (déplacée ou supprimée), non affiché${n - k > 1 ? "s" : ""}.</p>` : "";
-  if (full && opp.length) line("Opportunités", `<div class="list">${opp.map((o) => `<a class="row" href="${esc(o.url)}" target="_blank" rel="noopener"><div class="rm"><div class="rt">${esc(o.nom)}</div><div class="rs">${[o.statut, o.caReel != null ? `CA réel ${eur(o.caReel)}` : o.caEstime != null ? `CA estimé ${eur(o.caEstime)}` : null].filter(Boolean).map(esc).join(" · ")}</div></div>${ic("ext", "ic-sm")}</a>`).join("")}</div>${hors(p.opportunites?.n || 0, opp.length, "Opportunités")}`);
+  if (full && opp.length) line("Opportunités", `<div class="list">${opp.map((o) => `<a class="row" href="#/pistes/${o.id}"><div class="rm"><div class="rt">${esc(o.nom)}</div><div class="rs">${[o.statut, o.caReel != null ? `CA réel ${eur(o.caReel)}` : o.caEstime != null ? `CA estimé ${eur(o.caEstime)}` : null].filter(Boolean).map(esc).join(" · ")}</div></div>${ic("arrow", "ic-sm")}</a>`).join("")}</div>${hors(p.opportunites?.n || 0, opp.length, "Opportunités")}`);
   else if (full && p.opportunites?.n) line("Opportunités", hors(p.opportunites.n, 0, "Opportunités"));
   else if (!p.opportunites?.n) missing.push("opportunités");
   else if (!full) line("Opportunités", `${p.opportunites.n} liée${p.opportunites.n > 1 ? "s" : ""}`);

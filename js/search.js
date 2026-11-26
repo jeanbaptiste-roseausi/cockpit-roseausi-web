@@ -1,8 +1,9 @@
 // Recherche globale de l'en-tête (repris du POC) : contacts, tâches ouvertes et projets déjà lus
-// par les vues. Pistes et échanges s'ajouteront avec leurs modules (lots 2 et 6).
+// par les vues, et pistes (lot 2). Les échanges s'ajouteront avec leur module (lot 6).
 import { projetsIndex } from "./api.js";
 import { contactIndex } from "./contacts.js";
 import { taskIndex } from "./todo.js";
+import { pisteIndex, lab as pisteLab } from "./pistes.js";
 import { $, esc, ic, av, nrm, etatLabel } from "./ui.js";
 
 let data = null, loading = null, box = null;
@@ -10,8 +11,8 @@ let data = null, loading = null, box = null;
 async function ensure() {
   if (data) return data;
   if (!loading) {
-    loading = Promise.allSettled([contactIndex(), taskIndex(), projetsIndex()]).then(([c, t, p]) => {
-      data = { contacts: c.value || [], taches: t.value || [], projets: p.value || [], partial: [c, t, p].some((x) => x.status !== "fulfilled") };
+    loading = Promise.allSettled([contactIndex(), taskIndex(), projetsIndex(), pisteIndex()]).then(([c, t, p, pi]) => {
+      data = { contacts: c.value || [], taches: t.value || [], projets: p.value || [], pistes: pi.value || [], partial: [c, t, p, pi].some((x) => x.status !== "fulfilled") };
       loading = null;
       return data;
     });
@@ -24,7 +25,7 @@ export function mountSearch(el) {
   box = el;
   data = null; // relu à chaque changement de vue pour rester à jour
   el.innerHTML = `${ic("search")}<label class="sr" for="gq">Rechercher</label>
-    <input id="gq" type="search" placeholder="Chercher un contact, une tâche, un projet…" autocomplete="off">
+    <input id="gq" type="search" placeholder="Chercher un contact, une tâche, un projet, une piste…" autocomplete="off">
     <div class="sres" id="gres" hidden></div>`;
   const input = $("#gq", el), res = $("#gres", el);
   const paint = async () => {
@@ -39,10 +40,12 @@ export function mountSearch(el) {
     const C = d.contacts.filter((c) => hit([c.nom, c.position, ...(c.typeOrg || [])].join(" "))).slice(0, 6);
     const T = d.taches.filter((t) => hit([t.nom, t.typeAction].join(" "))).slice(0, 6);
     const P = d.projets.filter((p) => hit(p.nom)).slice(0, 5);
+    const PI = d.pistes.filter((p) => hit([p.nom, p.prochaineAction].join(" "))).slice(0, 5);
     const grp = (lab, items, fn) => items.length ? `<div class="sg">${lab}</div>${items.map(fn).join("")}` : "";
     const html = grp("Contacts", C, (c) => `<a href="#/contacts/${c.id}">${av(c)}<span>${esc(c.nom)}${c.position ? ` <span class="small muted">· ${esc(c.position)}</span>` : ""}</span></a>`)
       + grp("Tâches ouvertes", T, (t) => `<a href="#/todo/${t.id}"><span class="ifmt sm">${ic("todo", "ic-sm")}</span><span>${esc(t.nom)} <span class="small muted">· ${esc(etatLabel(t.etat))}</span></span></a>`)
-      + grp("Projets", P, (p) => `<a href="#/projets/${p.id}"><span class="ifmt sm">${ic("folder", "ic-sm")}</span><span>${esc(p.nom)} <span class="small muted">· ${esc(p.etat || "")}</span></span></a>`);
+      + grp("Projets", P, (p) => `<a href="#/projets/${p.id}"><span class="ifmt sm">${ic("folder", "ic-sm")}</span><span>${esc(p.nom)} <span class="small muted">· ${esc(p.etat || "")}</span></span></a>`)
+      + grp("Pistes", PI, (p) => `<a href="#/pistes/${p.id}"><span class="ifmt sm">${ic("target", "ic-sm")}</span><span>${esc(p.nom)} <span class="small muted">· ${esc(pisteLab(p.etape))}</span></span></a>`);
     res.innerHTML = (html || `<p class="small muted" style="padding:8px">Aucun résultat.</p>`)
       + (d.partial ? `<p class="small muted" style="padding:6px 8px">Une des bases n'a pas pu être lue, résultats incomplets.</p>` : "");
   };

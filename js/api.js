@@ -66,6 +66,22 @@ export const projetsApi = {
   update: (id, changes) => call("projets", `/${id}`, { method: "PATCH", body: { changes } }),
 };
 
+// Lot 2 : pistes (base Pistes/Opportunités) et réseau (parcours et mises en lien, base Contacts).
+export const pistesApi = {
+  list: () => call("pistes"),
+  ofContact: (id) => call("pistes", `?contact=${encodeURIComponent(id)}`),
+  ofProjet: (id) => call("pistes", `?projet=${encodeURIComponent(id)}`),
+  get: (id) => call("pistes", `/${id}`),
+  update: (id, changes) => call("pistes", `/${id}`, { method: "PATCH", body: { changes } }),
+};
+
+export const reseauApi = {
+  list: () => call("reseau"),
+  update: (id, changes) => call("reseau", `/${id}`, { method: "PATCH", body: { changes } }),
+  relier: (recommandeur, recommande) => call("reseau", "/lien", { method: "POST", body: { recommandeur, recommande } }),
+  creer: (values) => call("reseau", "/contact", { method: "POST", body: values }),
+};
+
 // Miroir de Notion (lot M) : relecture des pages modifiées dans Notion, à la demande (Actualiser).
 export const miroirApi = {
   sync: () => call("miroir", "/sync", { method: "POST", body: { mode: "incrementale", attendre: true } }),
