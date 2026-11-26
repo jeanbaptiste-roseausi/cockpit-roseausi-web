@@ -3,7 +3,8 @@
 // projet ou une piste, ouvrir le compte rendu (dans Notion, où il est rédigé), créer une action TO DO.
 import { journalApi } from "./api.js";
 import { interRow } from "./journee.js";
-import { $, esc, ic, nrm, fd, toast, setDrawerOwner, ownsDrawer, ficheTop, renderSide, sideHTML, ficheTabs, etatChip, taSpan, chip, syncOf, syncSpan, staleBanner } from "./ui.js";
+import { jetonsHTML } from "./jetons.js";
+import { $, esc, ic, nrm, fd, toast, toastUndo, setDrawerOwner, ownsDrawer, ficheTop, renderSide, sideHTML, ficheTabs, etatChip, taSpan, chip, syncOf, syncSpan, staleBanner } from "./ui.js";
 
 const JOURS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
 const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
@@ -215,25 +216,35 @@ function actions(o, e, acts) {
     ${acts.length ? `<div class="list">${acts.map(taskRow).join("")}</div>` : `<p class="empty">Aucune action rattachée à cet échange.</p>`}`;
 }
 
+// Rattachements en jetons (artefact) : chaque ajout ou retrait part aussitôt dans Notion, avec « Annuler ».
 function liens(o, e, pj, pi) {
   const ch = o.choix || { projets: [], pistes: [] };
-  const tok = (x, rel, href, icn) => `<span class="tok"><a class="tok-l" href="${href}">${ic(icn, "ic-sm")}<span>${esc((x.nom || "Sans nom").trim())}</span></a><button class="tok-x" data-jrm="${esc(rel)}:${x.id}" ${S.busy ? "disabled" : ""} aria-label="Retirer ${esc((x.nom || "").trim())}">×</button></span>`;
-  const sel = (id, rel, list, have, ph) => `<select class="sel" id="${id}" data-jadd="${esc(rel)}" ${S.busy || e[rel === "Projets" ? "projetsMore" : "pistesMore"] ? "disabled" : ""}><option value="">${ph}</option>${list.filter((x) => !have.includes(x.id)).map((x) => `<option value="${x.id}">${esc(x.nom)}${x.etat ? ` (${esc(x.etat)})` : x.issue && x.issue !== "En cours" ? ` (${esc(x.issue)})` : ""}</option>`).join("")}</select>`;
+  const field = (id, rel, label, ph, items, list, more, href, icn, cls) => jetonsHTML({
+    id, label, placeholder: ph, busy: S.busy, locked: more,
+    items: items.map((x) => ({ id: x.id, nom: x.nom || "Sans nom", href: href(x.id), icon: icn, cls })),
+    choices: list.map((x) => ({ id: x.id, nom: x.nom, sub: x.etat || (x.issue && x.issue !== "En cours" ? x.issue : "") })),
+    onAdd: (xid) => rattacher(rel, { add: [xid] }), onRemove: (xid) => rattacher(rel, { remove: [xid] }),
+  });
   return `<div class="form">
-    <div class="fld"><span class="lb">Projet</span><div class="chips">${pj.map((x) => tok(x, "Projets", `#/projets/${x.id}`, "folder")).join("") || `<span class="small muted">Aucun projet.</span>`}</div>
-      <label class="sr" for="jl-pr">Rattacher à un projet</label>${sel("jl-pr", "Projets", ch.projets, e.projets, "Rattacher à un projet…")}</div>
-    <div class="fld"><span class="lb">Piste</span><div class="chips">${pi.map((x) => tok(x, "Piste/Opportunité", `#/pistes/${x.id}`, "target")).join("") || `<span class="small muted">Aucune piste.</span>`}</div>
-      <label class="sr" for="jl-pi">Rattacher à une piste</label>${sel("jl-pi", "Piste/Opportunité", ch.pistes, e.pistes, "Rattacher à une piste…")}</div>
+    <div class="fld"><span class="lb">Projet</span>${field("jl-pr", "Projets", "Projets de l'échange", "Rattacher à un projet", pj, ch.projets, e.projetsMore, (id) => `#/projets/${id}`, "folder", "pj")}</div>
+    <div class="fld"><span class="lb">Piste</span>${field("jl-pi", "Piste/Opportunité", "Pistes de l'échange", "Rattacher à une piste", pi, ch.pistes, e.pistesMore, (id) => `#/pistes/${id}`, "target", "")}</div>
     <div class="fld"><span class="lb">Contacts</span>${contactChips(e)}<span class="small muted">Les contacts se modifient dans Notion.</span></div>
-    <p class="small muted">Chaque ajout ou retrait part tout de suite dans Notion. Rien ne se supprime : retirer un lien ne touche ni le projet ni la piste.</p></div>`;
+    <p class="small muted">Chaque ajout ou retrait part tout de suite dans Notion. Une erreur ? La croix retire le lien, et « Annuler » le remet. Rien ne se supprime : retirer un lien ne touche ni le projet ni la piste.</p></div>`;
 }
 
-async function rattacher(rel, change) {
+async function rattacher(rel, change, undoable = true) {
   const o = S.open; if (!o || S.busy) return;
   S.busy = true; renderDrawer();
   try {
     const r = await journalApi.rattacher(o.id, { [rel]: change });
-    toast(change.add ? "Rattaché dans Notion." : "Lien retiré dans Notion.");
+    const msg = change.add ? "Rattaché dans Notion." : "Lien retiré dans Notion.";
+    const eid = o.id;
+    if (undoable) toastUndo(msg, () => {
+      const inv = change.add ? { remove: change.add } : { add: change.remove };
+      if (S.open?.id === eid) rattacher(rel, inv, false);
+      else journalApi.rattacher(eid, { [rel]: inv }).then(() => { toast("Lien rétabli dans Notion."); load(true); }, (err) => toast(err.message, "err"));
+    });
+    else toast(change.add ? "Lien remis dans Notion." : "Lien retiré de nouveau.");
     // La fiche suit la réponse de Notion (la page renvoyée après l'écriture), sans relire le miroir.
     const nm = (list, id) => (list || []).find((x) => x.id === id)?.nom;
     Object.assign(o.e, {
@@ -266,12 +277,6 @@ export function bindJournalDrawerEvents(root) {
     const act = e.target.closest("[data-jact]")?.dataset.jact;
     if (act === "action") { S.open.sec = "actions"; S.open.form = true; renderDrawer(); $("#ja-n", root)?.focus(); return; }
     if (act === "noform") { S.open.form = false; renderDrawer(); return; }
-    const rm = e.target.closest("[data-jrm]");
-    if (rm && !rm.disabled) { const [rel, id] = rm.dataset.jrm.split(/:(?=[^:]+$)/); rattacher(rel, { remove: [id] }); }
-  });
-  root.addEventListener("change", (e) => {
-    const s = e.target.closest?.("[data-jadd]");
-    if (s && s.value && ownsDrawer("journal")) rattacher(s.dataset.jadd, { add: [s.value] });
   });
   root.addEventListener("submit", async (e) => {
     const form = e.target.closest?.("[data-jform='action']");

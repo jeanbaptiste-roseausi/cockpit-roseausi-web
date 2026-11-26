@@ -40,6 +40,22 @@ export function toast(msg, kind = "") {
   toastT = setTimeout(() => { t.className = ""; }, 3200);
 }
 
+/**
+ * Message de confirmation avec « Annuler » pendant 6 secondes (artefact, toast(msg, undo)).
+ * undo() refait le geste inverse dans Notion ; le message disparaît dès le clic.
+ */
+export function toastUndo(msg, undo) {
+  const t = $("#toast");
+  t.textContent = msg;
+  const b = document.createElement("button");
+  b.type = "button"; b.textContent = "Annuler";
+  b.onclick = () => { clearTimeout(toastT); t.className = ""; undo(); };
+  t.append(b);
+  t.className = "on undo";
+  clearTimeout(toastT);
+  toastT = setTimeout(() => { t.className = ""; }, 6000);
+}
+
 // Le tiroir de fiche est partagé entre les vues : seule la vue qui l'a ouvert en dernier
 // a le droit de le redessiner (évite qu'une réponse tardive écrase une autre fiche).
 let drawerOwner = null;

@@ -1,14 +1,18 @@
-// Vue « Réseau » (lot 2) : parcours des membres du réseau en colonnes par étape, carte des mises en lien
+// Vue « Réseau » (lot 2) : parcours des membres du réseau, carte des mises en lien
 // (qui a recommandé qui, rattachements aux organisations et réseaux), création d'un contact recommandé,
 // mise en lien de deux contacts. Lecture et écriture par la fonction reseau (base Contacts).
 // Règle : Jean-Baptiste change lui-même les statuts ; rien ne les change d'office.
+// 26/11/2026 : parcours en lignes par défaut, repris de l'artefact 1795698879-79f6 (vParcours, parcRow, parcGo) :
+// frise des étapes en cours cliquable, sorties réussies et sorties, tri par étape ou par échéance, menu « ⋯ »,
+// kanban toujours disponible, « Annuler » 6 secondes après chaque changement d'étape.
 import { reseauApi } from "./api.js";
-import { $, esc, ic, nrm, fd, toast, initials, syncOf, syncSpan, staleBanner } from "./ui.js";
+import { $, esc, ic, nrm, fd, toast, toastUndo, initials, syncOf, syncSpan, staleBanner } from "./ui.js";
+import { modeDemande, modesSeg } from "./modes.js";
 
 const S = {
   items: null, parcours: [], couleurs: {}, moi: null, parcoursDefaut: null, clientsLus: true,
   loading: false, error: null, synchro: null,
-  f: { mode: "parcours", q: "", pst: "", pall: false, orgs: true, reseaux: true, tous: false },
+  f: { mode: "parcours", q: "", pst: "", pall: false, pview: "lignes", psort: "", orgs: true, reseaux: true, tous: false },
   form: null, busy: new Set(), sel: null,
 };
 let host = null;
@@ -19,6 +23,7 @@ export const reseauView = {
   icon: "net",
   async mount(container) {
     host = container;
+    if (modeDemande.reseau) { S.f.mode = modeDemande.reseau; modeDemande.reseau = null; S.sel = null; }
     render();
     if (!S.items) await load();
   },
@@ -56,12 +61,19 @@ const isPers = (c) => c && !isOrg(c) && !isRes(c);
 const HORS = (v) => lab(v) === "Contact"; // « 👨‍👩‍👧‍👦Contact » = hors parcours
 /** Étapes suivies dans le parcours (toutes sauf « hors parcours »), dans l'ordre de Notion. */
 const PARC = () => S.parcours.filter((v) => !HORS(v));
-const ACTIFS = ["Recommandé", "À contacter", "Contacté", "À relancer", "Échange fait", "Relais"];
+// Étapes en cours, puis sorties réussies (Relais, Piste créée) et sorties (Nurturing, Sans suite), comme l'artefact.
+const P_ACT = ["Recommandé", "À contacter", "Contacté", "À relancer", "Échange fait"];
+const P_WIN = ["Relais", "Opportunité créée"];
+const P_OUT = ["Nurturing", "Pas pertinent"];
 const NEXT = { "Recommandé": "À contacter", "À contacter": "Contacté", "Contacté": "Échange fait", "À relancer": "Échange fait", "Échange fait": "Relais" };
 const optOf = (l) => S.parcours.find((v) => lab(v) === l);
-const PARC_COL = { "Recommandé": "#8a6a4a", "À contacter": "#7a7a7a", "Contacté": "#b8902a", "À relancer": "#7b5aa6", "Échange fait": "#c0702a", "Relais": "#2e8b6a", "Opportunité créée": "#1f7a5a", "Nurturing": "#3a6fa8", "Pas pertinent": "#b04040", "Contact": "#b0567a" };
+// « Sans suite » passe du rouge au gris (artefact) : le rouge reste réservé aux échéances.
+const PARC_COL = { "Recommandé": "#8a6a4a", "À contacter": "#7a7a7a", "Contacté": "#b8902a", "À relancer": "#7b5aa6", "Échange fait": "#c0702a", "Relais": "#2e8b6a", "Opportunité créée": "#1f7a5a", "Nurturing": "#3a6fa8", "Pas pertinent": "#8a9291", "Contact": "#b0567a" };
 const pCol = (v) => PARC_COL[lab(v)] || "#7a7a7a";
-const parcChip = (v) => v ? `<span class="chip parc"><i class="dot" style="background:${pCol(v)}"></i>${esc(lab(v) === "Contact" ? "Hors parcours" : lab(v))}</span>` : "";
+// Libellés de l'artefact ; la valeur enregistrée dans Notion ne change pas (donnée au survol).
+const DISP = { "Opportunité créée": "Piste créée", "Pas pertinent": "Sans suite", "Contact": "Hors parcours" };
+export const pLab = (v) => DISP[lab(v)] || lab(v);
+const parcChip = (v) => v ? `<span class="chip parc" title="Notion : ${esc(lab(v))}"><i class="dot" style="background:${pCol(v)}"></i>${esc(pLab(v))}</span>` : "";
 /** Nature sur la carte (règle du POC) : client ou partenaire (piste gagnée ou partenaire), réseau (hors parcours ou a recommandé), prospect. */
 function kindOf(c) {
   if (isMe(c.id)) return "me";
@@ -82,9 +94,8 @@ const name = (c) => (isMe(c.id) ? "moi, réseau perso" : c.nom.trim());
 function render() {
   if (!host) return;
   const f = S.f;
-  const seg = (k, v, l) => `<button class="${f[k] === v ? "on" : ""}" data-rzf="${k}:${v}">${l}</button>`;
-  const head = `<div class="bar"><div class="seg" role="group" aria-label="Affichage">${seg("mode", "parcours", ic("users", "ic-sm") + " Parcours")}${seg("mode", "carte", ic("net", "ic-sm") + " Mises en lien")}</div>
-    <button class="btn sm pri" data-rzact="new">${ic("plus", "ic-sm")}Contact recommandé</button><button class="btn sm" data-rzact="lien">${ic("link", "ic-sm")}Relier deux contacts</button></div>`;
+  const head = `<div class="bar">${modesSeg("reseau", f.mode, (m) => `data-rzf="mode:${m}"`)}
+    ${f.mode === "carte" ? `<button class="btn sm pri" data-rzact="new">${ic("plus", "ic-sm")}Contact recommandé</button>` : ""}<button class="btn sm" data-rzact="lien">${ic("link", "ic-sm")}Relier deux contacts</button></div>`;
   let body;
   if (S.error) body = `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(S.error)} <button class="lnk" data-act="reload">Réessayer</button></span></div>`;
   else if (!S.items) body = `<div class="card"><p class="empty">Chargement du réseau depuis Notion…</p></div>`;
@@ -92,43 +103,83 @@ function render() {
   const active = document.activeElement?.id, pos = document.activeElement?.selectionStart;
   host.innerHTML = head + body;
   if (active === "rz-q") { const i = $("#rz-q", host); i?.focus(); try { i.setSelectionRange(pos, pos); } catch { /* */ } }
+  else if (focusAfter && !S.busy.size) { const el = host.querySelector(focusAfter); focusAfter = null; el?.focus(); }
   if (f.mode === "carte" && S.items) drawNet();
 }
 
 const syncLine = (t = "") => `<p class="small muted" style="margin:0 0 12px">${syncSpan(S.synchro, true)}${S.loading ? ", mise à jour…" : ""}.${t}</p>`;
 
+let focusAfter = null; // sélecteur à refocaliser après le rendu (geste au clavier)
+
+const late = (c) => !!c.dateProchaineAction && c.dateProchaineAction.slice(0, 10) < today();
+const isToday = (c) => !!c.dateProchaineAction && c.dateProchaineAction.slice(0, 10) === today();
+const byOf = (c) => c.recommandePar.map((id) => (isMe(id) ? { nom: "moi, réseau perso" } : C(id))).filter(Boolean);
+const toOf = (c) => c.aRecommande.length;
+
+/** Bouton vers l'étape suivante et menu « ⋯ » des autres étapes, communs aux lignes et aux cartes. */
+function parcGo(c) {
+  const busy = S.busy.has(c.id), cur = lab(c.parcours);
+  const nx = NEXT[cur] && optOf(NEXT[cur]);
+  const main = nx ? `<button class="btn sm" data-rznext="${c.id}" data-v="${esc(nx)}" ${busy ? "disabled" : ""} title="Passer à ${esc(pLab(nx))}">${esc(pLab(nx))} ›</button>` : "";
+  const grp = (l, ks) => { const opts = ks.map(optOf).filter(Boolean); return opts.length ? `<span class="pm-g">${l}</span>${opts.map((v) => `<button type="button" class="${c.parcours === v ? "on" : ""}" data-rzset="${c.id}" data-v="${esc(v)}" ${busy ? "disabled" : ""} ${c.parcours === v ? 'aria-current="true"' : ""}><i class="dot" style="background:${pCol(v)}"></i>${esc(pLab(v))}</button>`).join("")}` : ""; };
+  return `<div class="pgo">${main}<details class="pmenu" data-rzmenu="${c.id}"><summary aria-label="Changer l'étape de ${esc(c.nom.trim())}" title="Autre étape">⋯</summary><div class="pm-pop">${grp("Étapes", P_ACT)}${grp("Sorties réussies", P_WIN)}${grp("Sorties", [...P_OUT, "Contact"])}</div></details></div>`;
+}
+
 function parcCard(c) {
-  const by = c.recommandePar.map((id) => (isMe(id) ? { nom: "moi, réseau perso" } : C(id))).filter(Boolean);
-  const to = c.aRecommande.length, org = orgsOf(c).find(isOrg);
-  const late = c.dateProchaineAction && c.dateProchaineAction.slice(0, 10) < today();
-  const nx = NEXT[lab(c.parcours)] && optOf(NEXT[lab(c.parcours)]);
-  const busy = S.busy.has(c.id);
+  const by = byOf(c), to = toOf(c), org = orgsOf(c).find(isOrg);
   return `<div class="pcard rzcard"><a class="pc-main" href="#/contacts/${c.id}"><span class="pc-n">${esc(c.nom.trim())}</span>${org ? `<span class="pc-s">${esc(org.nom)}</span>` : c.position ? `<span class="pc-s">${esc(c.position)}</span>` : ""}
     ${by.length ? `<span class="pc-s">${ic("link", "ic-sm")}Par ${esc(by.map((b) => b.nom.trim()).join(", "))}</span>` : ""}
-    ${c.prochaineAction || c.dateProchaineAction ? `<span class="pc-s ${late ? "late" : ""}">${ic("todo", "ic-sm")}${esc(c.prochaineAction || "Prochaine action")}${c.dateProchaineAction ? ", " + esc(fd(c.dateProchaineAction)) : ""}</span>` : ""}
+    ${c.prochaineAction || c.dateProchaineAction ? `<span class="pc-s ${late(c) ? "late" : ""}">${ic("todo", "ic-sm")}${esc(c.prochaineAction || "Prochaine action")}${c.dateProchaineAction ? ", " + esc(fd(c.dateProchaineAction)) : ""}</span>` : ""}
     ${to ? `<span class="pc-s">${ic("users", "ic-sm")}A recommandé ${to} contact${to > 1 ? "s" : ""}</span>` : ""}</a>
-    <div class="pc-act"><label class="sr" for="rzs-${c.id}">Étape de ${esc(c.nom)}</label><select class="sel sm" id="rzs-${c.id}" data-rzparc="${c.id}" ${busy ? "disabled" : ""}>${S.parcours.map((v) => `<option value="${esc(v)}" ${c.parcours === v ? "selected" : ""}>${esc(HORS(v) ? "Hors parcours" : lab(v))}</option>`).join("")}</select>
-    ${nx ? `<button class="btn sm" data-rznext="${c.id}" data-v="${esc(nx)}" ${busy ? "disabled" : ""} title="Passer à ${esc(lab(nx))}">${esc(lab(nx))} ›</button>` : ""}</div></div>`;
+    <div class="pc-act">${parcGo(c)}</div></div>`;
+}
+
+function parcRow(c, withStage) {
+  const by = byOf(c), to = toOf(c), org = orgsOf(c).find(isOrg);
+  const sub = [org ? org.nom : c.position, by.length ? "par " + by.map((b) => b.nom.trim()).join(", ") : "", to ? `a recommandé ${to} contact${to > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ");
+  const lt = late(c), td = isToday(c);
+  return `<div class="prow" data-rzrow="${c.id}">
+    <a class="pr-who" href="#/contacts/${c.id}"><span class="pr-n">${esc(c.nom.trim())}</span>${sub ? `<span class="pr-s">${esc(sub)}</span>` : ""}</a>
+    <a class="pr-act ${c.prochaineAction ? "" : "vide"}" href="#/contacts/${c.id}">${withStage ? parcChip(c.parcours) : ""}<span>${c.prochaineAction ? esc(c.prochaineAction) : "Prochaine action à définir"}</span></a>
+    <span class="pr-dt ${lt ? "late" : td ? "today" : ""}">${c.dateProchaineAction ? (lt ? "En retard, " : td ? "Aujourd'hui, " : "") + esc(fd(c.dateProchaineAction)) : ""}</span>
+    ${parcGo(c)}</div>`;
 }
 
 function parcours() {
   const f = S.f, q = nrm(f.q.trim());
   let list = S.items.filter((c) => isPers(c) && c.parcours && !HORS(c.parcours));
-  if (q) list = list.filter((c) => nrm(c.nom + " " + (orgsOf(c)[0]?.nom || "")).includes(q));
-  const by = Object.fromEntries(PARC().map((v) => [v, list.filter((c) => c.parcours === v).sort((a, b) => String(a.dateProchaineAction || "9").localeCompare(String(b.dateProchaineAction || "9")) || a.nom.trim().localeCompare(b.nom.trim(), "fr"))]));
-  const active = PARC().filter((v) => ACTIFS.includes(lab(v)));
-  const enCours = list.filter((c) => active.includes(c.parcours));
-  const dues = list.filter((c) => c.dateProchaineAction && c.dateProchaineAction.slice(0, 10) <= today() && !["Opportunité créée", "Pas pertinent"].includes(lab(c.parcours))).length;
-  const opp = PARC().find((v) => lab(v) === "Opportunité créée");
+  // La recherche porte aussi sur la prochaine action (artefact).
+  if (q) list = list.filter((c) => nrm(c.nom + " " + (orgsOf(c)[0]?.nom || "") + " " + (c.prochaineAction || "")).includes(q));
+  const byDate = (a, b) => String(a.dateProchaineAction || "9").localeCompare(String(b.dateProchaineAction || "9")) || a.nom.trim().localeCompare(b.nom.trim(), "fr");
+  const by = Object.fromEntries(PARC().map((v) => [v, list.filter((c) => c.parcours === v).sort(byDate)]));
+  const n = (l) => { const v = optOf(l); return v ? by[v].length : 0; };
+  const ACT = P_ACT.map(optOf).filter(Boolean);
+  const act = list.filter((c) => ACT.includes(c.parcours));
+  const due = act.filter((c) => c.dateProchaineAction && c.dateProchaineAction.slice(0, 10) <= today()).length;
+  const nopa = act.filter((c) => !c.prochaineAction).length;
   const st = f.pst && PARC().includes(f.pst) ? f.pst : null;
-  const cols = st ? [st] : f.pall ? PARC() : active;
-  const tab = (k, l, n) => `<button class="${(st || "") === k ? "on" : ""}" data-rzf="pst:${esc(k)}">${k ? `<i class="dot" style="background:${pCol(k)}"></i>` : ""}${esc(l)}<span class="cnt">${n}</span></button>`;
+  const kanban = f.pview === "kanban", sortEch = f.psort === "ech";
+  const segv = (v, l) => `<button class="${(kanban ? "kanban" : "lignes") === v ? "on" : ""}" data-rzf="pview:${v}" aria-pressed="${(kanban ? "kanban" : "lignes") === v}">${l}</button>`;
+  const exit = (l, win) => { const v = optOf(l); return v ? `<button class="${win ? "win " : ""}${st === v ? "on" : ""}" data-rzf="pst:${st === v ? "" : esc(v)}" aria-pressed="${st === v}" title="Notion : ${esc(lab(v))}"><i class="dot" style="background:${pCol(v)}"></i>${esc(pLab(v))} <b>${n(l)}</b></button>` : ""; };
+  const frise = `<nav class="pfrise" aria-label="Étapes du parcours">${ACT.map((v) => `<button class="${st === v ? "on" : ""} ${by[v].length ? "" : "z"}" data-rzf="pst:${st === v ? "" : esc(v)}" aria-pressed="${st === v}"><b>${by[v].length}</b><span><i class="dot" style="background:${pCol(v)}"></i>${esc(pLab(v))}</span></button>`).join("")}</nav>
+    <div class="pexits"><span>Sorties réussies</span>${P_WIN.map((l) => exit(l, true)).join("")}<span>Sorties</span>${P_OUT.map((l) => exit(l, false)).join("")}${st ? `<button class="lnk" data-rzf="pst:">Revenir aux étapes en cours</button>` : ""}</div>`;
+  let body;
+  if (kanban) {
+    const cols = st ? [st] : f.pall ? PARC() : ACT;
+    body = `<div class="parc-board ${cols.length === 1 ? "one" : ""}">${cols.map((v) => `<section class="pcol"><h3><i class="dot" style="background:${pCol(v)}"></i>${esc(pLab(v))}<span class="cnt">${by[v].length}</span></h3>${by[v].map(parcCard).join("") || `<p class="empty">Personne à cette étape.</p>`}</section>`).join("")}</div>
+    ${!st ? `<p class="small muted" style="margin-top:10px"><button class="lnk" data-rzf="pall:${f.pall ? "" : "1"}">${f.pall ? "Masquer" : "Afficher aussi"} les sorties</button></p>` : ""}`;
+  } else {
+    const keys = st ? [st] : ACT;
+    const sortBar = `<div class="psort"><span>Trier par</span><button class="${sortEch ? "" : "on"}" data-rzf="psort:" aria-pressed="${!sortEch}">étape</button><button class="${sortEch ? "on" : ""}" data-rzf="psort:ech" aria-pressed="${sortEch}">échéance</button></div>`;
+    if (sortEch) { const flat = keys.flatMap((k) => by[k]).sort(byDate); body = sortBar + `<div class="prlist">${flat.map((c) => parcRow(c, !st)).join("") || `<p class="empty">Personne ici.</p>`}</div>`; }
+    else body = sortBar + `<div class="prlist">${keys.filter((k) => by[k].length).map((k) => `<h3 class="psec"><i class="dot" style="background:${pCol(k)}"></i>${esc(pLab(k))}<span class="cnt">${by[k].length}</span></h3>${by[k].map((c) => parcRow(c, false)).join("")}`).join("") || `<p class="empty">Personne à cette étape.</p>`}</div>`;
+  }
   return syncLine(" Parcours réseau des personnes (propriété « Parcours réseau » de Contacts). Hors parcours : non affichés ici.") + `
-    <div class="bar"><label class="sr" for="rz-q">Chercher</label><input class="inp grow" id="rz-q" type="search" value="${esc(f.q)}" placeholder="Chercher dans le parcours…" autocomplete="off"></div>
-    <div class="parc-sum"><span><b>${enCours.length}</b> en cours</span><span><b>${dues}</b> action${dues > 1 ? "s" : ""} due${dues > 1 ? "s" : ""}</span><span><b>${opp ? by[opp].length : 0}</b> piste${opp && by[opp].length > 1 ? "s" : ""} créée${opp && by[opp].length > 1 ? "s" : ""}</span></div>
-    <div class="parc-tabs">${tab("", "En cours", enCours.length)}${PARC().map((v) => tab(v, lab(v), by[v].length)).join("")}</div>
-    <div class="parc-board ${cols.length === 1 ? "one" : ""}">${cols.map((v) => `<section class="pcol"><h3><i class="dot" style="background:${pCol(v)}"></i>${esc(lab(v))}<span class="cnt">${by[v].length}</span></h3>${by[v].map(parcCard).join("") || `<p class="empty">Personne à cette étape.</p>`}</section>`).join("")}</div>
-    ${!st ? `<p class="small muted" style="margin-top:10px"><button class="lnk" data-rzf="pall:${f.pall ? "" : "1"}">${f.pall ? "Masquer" : "Afficher aussi"} Opportunité créée, Nurturing et Pas pertinent</button></p>` : ""}`;
+    <div class="bar"><label class="sr" for="rz-q">Chercher</label><input class="inp grow" id="rz-q" type="search" value="${esc(f.q)}" placeholder="Chercher une personne, une organisation, une action…" autocomplete="off"></div>
+    <div class="parc-sum"><span><b>${act.length}</b> en cours</span><span class="${due ? "alert" : ""}"><b>${due}</b> action${due > 1 ? "s" : ""} due${due > 1 ? "s" : ""}</span><span><b>${nopa}</b> sans prochaine action</span>
+      <div class="seg" role="group" aria-label="Affichage du parcours">${segv("lignes", ic("list", "ic-sm") + " Lignes")}${segv("kanban", ic("board", "ic-sm") + " Kanban")}</div>
+      <button class="btn sm pri" data-rzact="new">${ic("plus", "ic-sm")}Contact recommandé</button></div>
+    ${frise}${body}`;
 }
 
 // ---------------- Formulaires : contact recommandé, mise en lien ----------------
@@ -214,13 +265,17 @@ async function submitLien() {
   finally { S.busy.delete("form"); render(); }
 }
 
-async function setParcours(id, v) {
-  const c = C(id); if (!c || c.parcours === v) return;
+/** Change l'étape dans Notion ; « Annuler » pendant 6 secondes remet l'étape d'avant (artefact). */
+async function setParcours(id, v, undoable = true) {
+  const c = C(id); if (!c || c.parcours === v || S.busy.has(id)) return;
+  const was = c.parcours;
   S.busy.add(id); render();
   try {
     const r = await reseauApi.update(id, { "Parcours réseau": v });
     Object.assign(c, r.contact);
-    toast(`Parcours de ${c.nom.trim()} : ${lab(v)}.`);
+    const msg = `${c.nom.trim()}, ${pLab(v)}.`;
+    if (undoable && was) toastUndo(msg + " Enregistré dans Notion.", () => setParcours(id, was, false).then(() => toast(`${c.nom.trim()} revient à ${pLab(was)}.`)));
+    else if (undoable) toast(msg + " Enregistré dans Notion.");
   } catch (e) { toast(e.message, "err"); }
   finally { S.busy.delete(id); render(); }
 }
@@ -359,8 +414,12 @@ export function bindReseauEvents(root) {
     if (!host || !root.contains(host)) return;
     const f = e.target.closest("[data-rzf]");
     if (f) { const [k, ...v] = f.dataset.rzf.split(":"); S.f[k] = k === "pall" ? !!v.join(":") : v.join(":"); if (k === "mode") S.sel = null; render(); return; }
+    // Menu « ⋯ » : un seul ouvert à la fois, fermé par un clic ailleurs.
+    root.querySelectorAll("details.pmenu[open]").forEach((d) => { if (!d.contains(e.target)) d.open = false; });
     const nx = e.target.closest("[data-rznext]");
-    if (nx) { setParcours(nx.dataset.rznext, nx.dataset.v); return; }
+    if (nx) { focusAfter = `[data-rzmenu="${nx.dataset.rznext}"] summary`; setParcours(nx.dataset.rznext, nx.dataset.v); return; }
+    const set = e.target.closest("[data-rzset]");
+    if (set) { set.closest("details").open = false; focusAfter = `[data-rzmenu="${set.dataset.rzset}"] summary`; setParcours(set.dataset.rzset, set.dataset.v); return; }
     const a = e.target.closest("[data-rzact]");
     if (!a) return;
     const act = a.dataset.rzact;
@@ -376,9 +435,9 @@ export function bindReseauEvents(root) {
     else if (act === "legend") $("#legend", host)?.classList.toggle("show");
   });
   root.addEventListener("input", (e) => { if (e.target.id === "rz-q") { S.f.q = e.target.value; render(); } });
+  root.addEventListener("keydown", (e) => { if (e.key === "Escape") { const d = e.target.closest?.("details.pmenu[open]"); if (d) { d.open = false; d.querySelector("summary").focus(); } } });
   root.addEventListener("change", (e) => {
     const el = e.target;
-    if (el.dataset?.rzparc) { setParcours(el.dataset.rzparc, el.value); return; }
     if (el.dataset?.rzchk) { S.f[el.dataset.rzchk] = el.checked; render(); return; }
     if (el.id === "rz-find" && el.value.trim()) { const c = S.items.find((x) => nrm(x.nom.trim()) === nrm(el.value.trim())); if (c) NET?.focus(nid(c.id)); }
   });

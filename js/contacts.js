@@ -4,6 +4,7 @@ import { contactsApi, todoApi, projetsIndex, pistesApi } from "./api.js";
 import { $, esc, ic, av, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, ficheTabs, parcChip, taSpan, syncOf, syncSpan, staleBanner, natureChip, setNoteSaver , swapHTML } from "./ui.js";
 import { og, ogLegend } from "./origines.js";
 import { refreshPistes, pisteSection } from "./pistes.js";
+import { modeDemande, modesSeg } from "./modes.js";
 
 const S = {
   items: null, schema: null, loading: false, error: null, fetchedAt: null, synchro: null,
@@ -28,6 +29,8 @@ export const contactsView = {
   icon: "users",
   async mount(container, drawer) {
     host = container; drawerHost = drawer;
+    // Arrivée depuis la barre d'affichage de Réseau (Liste, Cartes, À créer).
+    if (modeDemande.contacts) { S.f.mode = modeDemande.contacts; modeDemande.contacts = null; if (S.f.mode === "acreer") S.acreer = null; }
     render();
     if (!S.items) await load();
   },
@@ -79,11 +82,10 @@ function render() {
   const f = S.f;
   const seg = (v, lab) => `<button class="${f.type === v ? "on" : ""}" data-type="${v}">${lab}</button>`;
   const opts = S.schema?.editable?.["Parcours réseau"]?.options || [];
-  const mseg = (v, lab) => `<button class="${f.mode === v ? "on" : ""}" data-cmode="${v}" aria-pressed="${f.mode === v}">${lab}</button>`;
   const head = `
     <div class="bar">
       <a class="btn sm pri" href="#/contacts/new">${ic("plus", "ic-sm")}Contact</a>
-      <div class="seg" role="group" aria-label="Affichage">${mseg("liste", ic("list", "ic-sm") + " Liste")}${mseg("cartes", ic("grid", "ic-sm") + " Cartes")}${mseg("acreer", ic("plus", "ic-sm") + " À créer")}</div>
+      ${modesSeg("contacts", f.mode, (m) => `data-cmode="${m}"`)}
       <div class="seg" role="group" aria-label="Type de fiche">${seg("tous", "Tous")}${seg("Personne", "Personnes")}${seg("Organisation", "Organisations")}${seg("Réseau", "Réseaux")}</div>
       <label class="sr" for="cf-p">Statut</label>
       <select class="sel" id="cf-p"><option value="">Tous statuts</option>${opts.map((o) => `<option ${f.parcours === o ? "selected" : ""}>${esc(o)}</option>`).join("")}<option value="__none" ${f.parcours === "__none" ? "selected" : ""}>Sans statut</option></select>

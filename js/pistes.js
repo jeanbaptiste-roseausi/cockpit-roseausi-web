@@ -4,8 +4,9 @@
 import { pistesApi, todoApi } from "./api.js";
 import { contactIndex, invalidateACreer } from "./contacts.js";
 import { setTaskEtat } from "./todo.js";
-import { $, esc, ic, nrm, fd, due, toast, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, ficheTabs, fmtIcon, taSpan, chip, syncOf, syncSpan, staleBanner, initials, setNoteSaver } from "./ui.js";
+import { $, esc, ic, nrm, fd, due, toast, toastUndo, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, ficheTabs, fmtIcon, taSpan, chip, syncOf, syncSpan, staleBanner, initials, setNoteSaver } from "./ui.js";
 import { og, ogLegend } from "./origines.js";
+import { jetonsHTML } from "./jetons.js";
 
 const S = {
   items: null, etapes: [], origines: [], issues: [], synthese: null, regles: null, pn: {}, cn: {},
@@ -380,10 +381,26 @@ function echanges(p, n) {
 
 function contacts(o, p) {
   const busy = S.busy.has("f:👱‍♀️ Contacts"), locked = p.contactsMore;
+  const nom = (id) => p.contactsNoms?.[id] ?? (o.contactsList || []).find((c) => c.id === id)?.nom ?? "Contact illisible";
   return `<p class="small muted" style="margin:0 0 8px">Contacts de la piste${og("pistes", "👱‍♀️ Contacts")}</p>
-    <div class="chips">${p.contacts.map((id) => { const n = p.contactsNoms?.[id]; return `<span class="chip pers"><a href="#/contacts/${id}">${esc(n ?? "Contact illisible")}</a>${locked ? "" : `<button class="x" data-pirm="${id}" aria-label="Retirer ${esc(n || "ce contact")}" ${busy ? "disabled" : ""}>×</button>`}</span>`; }).join("") || `<p class="empty">Aucun contact rattaché.</p>`}</div>
-    ${locked ? `<p class="small muted">Trop de contacts pour être modifiés ici, passe par Notion.</p>` : `<div class="fld" style="margin-top:12px"><label for="pi-addc">Rattacher un existant</label><input class="inp" id="pi-addc" list="pi-cl" placeholder="Nom du contact" autocomplete="off" ${busy ? "disabled" : ""}><datalist id="pi-cl">${(o.contactsList || []).filter((c) => !p.contacts.includes(c.id)).map((c) => `<option value="${esc(String(c.nom).trim())}">`).join("")}</datalist></div>
+    ${jetonsHTML({
+      id: "pi-addc", label: "Contacts de la piste", placeholder: "Rattacher un contact existant (nom)", busy, locked,
+      items: p.contacts.map((id) => ({ id, nom: nom(id), href: `#/contacts/${id}` })),
+      choices: (o.contactsList || []).map((c) => ({ id: c.id, nom: String(c.nom).trim() })),
+      onAdd: (id) => relContact(o.id, "add", id), onRemove: (id) => relContact(o.id, "remove", id),
+    })}
+    ${locked ? `<p class="small muted">Trop de contacts pour être modifiés ici, passe par Notion.</p>` : `<p class="small muted" style="margin-top:6px">Chaque ajout ou retrait part tout de suite dans Notion. Une erreur ? La croix retire le lien, et « Annuler » le remet.</p>
       <div class="dact" style="margin-top:10px"><a class="btn sm" href="#/contacts/new/piste/${p.id}">${ic("plus", "ic-sm")}Créer et rattacher</a><span class="small muted">Nouveau contact dans Notion, rattaché aussitôt à cette piste.</span></div>`}`;
+}
+
+/** Ajout ou retrait d'un contact de la piste, enregistré aussitôt, avec « Annuler » pendant 6 secondes. */
+function relContact(pid, op, cid, undoable = true) {
+  const o = S.open;
+  const n = String(o?.p?.contactsNoms?.[cid] ?? (o?.contactsList || []).find((c) => c.id === cid)?.nom ?? "Contact").trim();
+  return withBusy("f:👱‍♀️ Contacts", async () => {
+    await update(pid, { "👱‍♀️ Contacts": { [op]: [cid] } }, undoable ? null : op === "add" ? `${n} remis sur la piste.` : `${n} retiré de nouveau.`);
+    if (undoable) toastUndo(op === "add" ? `${n} rattaché à la piste dans Notion.` : `${n} retiré de la piste dans Notion.`, () => relContact(pid, op === "add" ? "remove" : "add", cid, false));
+  });
 }
 
 function reperes(p) {
@@ -464,8 +481,6 @@ export function bindPistesDrawerEvents(root) {
       return;
     }
     if (a === "rouvrir") { const ch = optionChanges({ "Gagné/Perdu": "En cours" }); if (ch) withBusy("gagne", () => update(o.id, ch, "Piste rouverte.")); return; }
-    const rm = e.target.closest("[data-pirm]");
-    if (rm) { const id = rm.dataset.pirm; withBusy("f:👱‍♀️ Contacts", () => update(o.id, { "👱‍♀️ Contacts": { remove: [id] } }, "Contact retiré de la piste dans Notion.")); return; }
     const td = e.target.closest("[data-pitdone]");
     if (td) { e.preventDefault(); toggleTask(td.dataset.pitdone); }
   });
@@ -477,11 +492,6 @@ export function bindPistesDrawerEvents(root) {
       if (String(S.open.values[prop] ?? "").slice(0, 10) === v.slice(0, 10) && (S.open.editable?.[prop]?.type === "date" || String(S.open.values[prop] ?? "") === v)) return;
       withBusy("f:" + prop, () => update(S.open.id, { [prop]: v || null }, "Enregistré dans Notion."));
       return;
-    }
-    if (el.id === "pi-addc" && el.value.trim()) {
-      const c = (S.open.contactsList || []).find((x) => nrm(String(x.nom).trim()) === nrm(el.value.trim()));
-      if (!c) { toast(`Contact « ${el.value} » introuvable parmi les contacts actifs.`, "err"); return; }
-      withBusy("f:👱‍♀️ Contacts", () => update(S.open.id, { "👱‍♀️ Contacts": { add: [c.id] } }, "Contact rattaché à la piste dans Notion."));
     }
   });
 }

@@ -3,7 +3,8 @@
 import { todoApi } from "./api.js";
 import { contactIndex } from "./contacts.js";
 import { og, ogLegend } from "./origines.js";
-import { $, esc, ic, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, etatLabel, isDone, ficheTop, renderSide, sideHTML, ficheTabs, taSpan, syncOf, syncSpan, staleBanner, setNoteSaver , swapHTML } from "./ui.js";
+import { jetonsHTML } from "./jetons.js";
+import { $, esc, ic, nrm, fd, due, chip, toast, toastUndo, setDrawerOwner, ownsDrawer, etatChip, etatLabel, isDone, ficheTop, renderSide, sideHTML, ficheTabs, taSpan, syncOf, syncSpan, staleBanner, setNoteSaver , swapHTML } from "./ui.js";
 
 const PROSPECTION_PROJECT = "3e6a08ac559780ccb74ce21b2d7e2bbb"; // projet « Prospection » (filtre du POC)
 const CONTACTS_REL = "👱‍♀️ Contacts";
@@ -184,7 +185,7 @@ async function update(id, changes, okMsg, avant) {
   applyTask(r.task);
   if (S.open?.id === id) { S.open.task = r.task; S.open.values = r.values; }
   if (isDone(r.task)) S.justDone.add(id);
-  toast(okMsg);
+  if (okMsg) toast(okMsg);
   return r;
 }
 
@@ -316,23 +317,36 @@ function iniSelect(o, id) {
     <span class="small muted">${busy ? "Enregistrement…" : "Choisir une initiative rattache aussi la tâche à son projet."}</span></div>`;
 }
 
+// Rattachements en jetons (artefact) : chaque ajout ou retrait part aussitôt dans Notion, avec « Annuler ».
 function links(o, nameOfProj, nameOfContact) {
-  const t = o.task, busyP = o.saving.has("Projets"), busyC = o.saving.has(CONTACTS_REL), busyPi = o.saving.has(PISTES_REL);
-  const linkedPi = new Set((t.pistesIds || []).map(nid));
-  const pisteChoices = (S.schema?.pistes || []).filter((p) => !linkedPi.has(nid(p.id)));
-  const pisteRow = S.schema?.editable?.[PISTES_REL] ? `<dt>Pistes${og("todo", "Pistes/Opportunités")}</dt><dd><div class="chips">${(t.pistesIds || []).map((p) => `<span class="chip st-encours">${ic("target", "ic-sm")}<a href="#/pistes/${p}">${esc(pisteName(p) || "Piste")}</a><button class="x" data-trel="${PISTES_REL}" data-trm="${p}" aria-label="Retirer la piste ${esc(pisteName(p) || "")}" ${busyPi || t.pistesMore ? "disabled" : ""}>×</button></span>`).join("") || `<span class="muted small">Aucune</span>`}</div>
-      ${t.pistesMore ? "" : `<label class="sr" for="tl-pi">Ajouter une piste</label><select class="sel addrel" id="tl-pi" data-tadd="${PISTES_REL}" ${busyPi ? "disabled" : ""}><option value="">+ Ajouter une piste</option>${pisteChoices.map((p) => `<option value="${p.id}">${esc(p.nom)}${p.issue ? ` (${esc(p.issue)})` : ""}</option>`).join("")}</select>`}</dd>` : "";
-  const linkedP = new Set(t.projets.map(nid)), linkedC = new Set(t.contacts.map(nid));
-  const projChoices = projets().filter((p) => !linkedP.has(nid(p.id)) && p.etat !== "Annulé" && p.etat !== "Terminé");
-  const contactChoices = contactsList.sync().filter((c) => !linkedC.has(nid(c.id)));
+  const t = o.task;
+  const row = (prop, label, title, items, choices, more, ph) => `<dt>${label}${og("todo", prop)}</dt><dd>${jetonsHTML({
+    id: "tl-" + nrm(prop).replace(/[^a-z0-9]+/g, "-"), label: title, placeholder: ph, busy: o.saving.has(prop), locked: more,
+    items, choices, onAdd: (id) => relTask(prop, "add", id), onRemove: (id) => relTask(prop, "remove", id),
+  })}</dd>`;
+  const projChoices = projets().filter((p) => p.etat !== "Annulé" && p.etat !== "Terminé").map((p) => ({ id: p.id, nom: p.nom, sub: p.etat === "Prospect" ? "prospect" : "" }));
+  const pisteRow = S.schema?.editable?.[PISTES_REL] ? row(PISTES_REL, "Pistes", "Pistes de la tâche",
+    (t.pistesIds || []).map((p) => ({ id: p, nom: pisteName(p) || "Piste", href: `#/pistes/${p}`, icon: "target" })),
+    (S.schema?.pistes || []).map((p) => ({ id: p.id, nom: p.nom, sub: p.issue || "" })), t.pistesMore, "Rattacher une piste") : "";
   return `<dl class="kv">
-    <dt>Projets${og("todo", "Projets")}</dt><dd><div class="chips">${t.projets.map((p) => `<span class="chip pj">${ic("folder", "ic-sm")}<a href="#/projets/${p}">${esc(nameOfProj(p))}</a><button class="x" data-trel="Projets" data-trm="${p}" aria-label="Retirer le projet ${esc(nameOfProj(p))}" ${busyP || t.projetsMore ? "disabled" : ""}>×</button></span>`).join("") || `<span class="muted small">Aucun</span>`}</div>
-      ${t.projetsMore ? "" : `<label class="sr" for="tl-p">Ajouter un projet</label><select class="sel addrel" id="tl-p" data-tadd="Projets" ${busyP ? "disabled" : ""}><option value="">+ Ajouter un projet</option>${projChoices.map((p) => `<option value="${p.id}">${esc(p.nom)}${p.etat === "Prospect" ? " (prospect)" : ""}</option>`).join("")}</select>`}</dd>
-    <dt>Contacts${og("todo", "👱‍♀️ Contacts")}</dt><dd><div class="chips">${t.contacts.map((c) => `<span class="chip"><a href="#/contacts/${c}">${esc(nameOfContact(c))}</a><button class="x" data-trel="${CONTACTS_REL}" data-trm="${c}" aria-label="Retirer ${esc(nameOfContact(c))}" ${busyC || t.contactsMore ? "disabled" : ""}>×</button></span>`).join("") || `<span class="muted small">Aucun</span>`}</div>
-      ${t.contactsMore ? "" : `<label class="sr" for="tl-c">Ajouter un contact</label><input class="inp addrel" id="tl-c" list="tl-cl" placeholder="+ Ajouter un contact (nom)" autocomplete="off" ${busyC ? "disabled" : ""}>
-      <datalist id="tl-cl">${contactChoices.map((c) => `<option value="${esc(c.nom)}">`).join("")}</datalist>`}</dd>
+    ${row("Projets", "Projets", "Projets de la tâche", t.projets.map((p) => ({ id: p, nom: nameOfProj(p), href: `#/projets/${p}`, icon: "folder", cls: "pj" })), projChoices, t.projetsMore, "Rattacher un projet")}
+    ${row(CONTACTS_REL, "Contacts", "Contacts de la tâche", t.contacts.map((c) => ({ id: c, nom: nameOfContact(c), href: `#/contacts/${c}` })), contactsList.sync().map((c) => ({ id: c.id, nom: c.nom })), t.contactsMore, "Rattacher un contact")}
     ${pisteRow}
-  </dl>${t.projetsMore || t.contactsMore ? `<p class="small muted">Trop de liens pour être modifiés ici, passe par Notion.</p>` : ""}`;
+  </dl>${t.projetsMore || t.contactsMore ? `<p class="small muted">Trop de liens pour être modifiés ici, passe par Notion.</p>` : `<p class="small muted">Chaque ajout ou retrait part tout de suite dans Notion. Une erreur ? La croix retire le lien, et « Annuler » le remet.</p>`}`;
+}
+
+const REL_LAB = { "Projets": ["Projet ajouté", "Projet retiré"], [CONTACTS_REL]: ["Contact ajouté", "Contact retiré"], [PISTES_REL]: ["Piste rattachée", "Piste retirée"] };
+function relTask(prop, op, id, undoable = true, tid = S.open?.id) {
+  const [addL, rmL] = REL_LAB[prop] || ["Lien ajouté", "Lien retiré"];
+  const go = async () => {
+    await update(tid, { [prop]: { [op]: [id] } }, undoable ? "" : `${op === "add" ? addL : rmL} de nouveau.`);
+    if (undoable) toastUndo(`${op === "add" ? addL : rmL} dans Notion.`, () => relTask(prop, op === "add" ? "remove" : "add", id, false, tid));
+  };
+  const o = S.open;
+  // Fiche fermée entre-temps (Annuler) : l'écriture part quand même, sans état d'attente à afficher.
+  if (!o || o.id !== tid) return go().then(render, (e) => toast(e.message, "err"));
+  if (o.saving.has(prop)) return;
+  return saving(prop, go);
 }
 
 function form(o) {
@@ -493,21 +507,12 @@ export function bindTodoDrawerEvents(root) {
     if (sec) { S.open.sec = sec.dataset.tsec; renderDrawer(); root.scrollTop = 0; return; }
     const st = e.target.closest("[data-tstate]");
     if (st) { const s = st.dataset.tstate; saving("État", () => update(S.open.id, { "État": s }, `État : ${etatLabel(s)}.`)); return; }
-    const rm = e.target.closest("[data-trm]");
-    if (rm) { const prop = rm.dataset.trel; saving(prop, () => update(S.open.id, { [prop]: { remove: [rm.dataset.trm] } }, "Lien retiré dans Notion.")); }
   });
   root.addEventListener("change", (e) => {
     if (!ownsDrawer("todo") || !S.open) return;
     const el = e.target;
     if (el.dataset?.tprop) { saveField(el); return; }
     if (el.dataset?.tini) { const v = el.value; saving(THEME_REL, () => update(S.open.id, { [THEME_REL]: { set: v ? [v] : [] } }, v ? "Initiative enregistrée dans Notion." : "Initiative retirée dans Notion.")); return; }
-    if (el.dataset?.tadd === "Projets" && el.value) { const id = el.value; saving("Projets", () => update(S.open.id, { "Projets": { add: [id] } }, "Projet ajouté dans Notion.")); return; }
-    if (el.dataset?.tadd === PISTES_REL && el.value) { const id = el.value; saving(PISTES_REL, () => update(S.open.id, { [PISTES_REL]: { add: [id] } }, "Piste rattachée dans Notion.")); return; }
-    if (el.id === "tl-c" && el.value.trim()) {
-      const id = contactIdByName(el.value);
-      if (!id) { toast(`Contact « ${el.value} » introuvable parmi les contacts actifs.`, "err"); return; }
-      saving(CONTACTS_REL, () => update(S.open.id, { [CONTACTS_REL]: { add: [id] } }, "Contact ajouté dans Notion."));
-    }
   });
   root.addEventListener("submit", (e) => {
     if (e.target.id === "tn-form") { e.preventDefault(); submitNew(e.target); }
