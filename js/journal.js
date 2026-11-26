@@ -1,10 +1,12 @@
 // Vue « Journal » (lot 5a, 26/11/2026) : entrées du Journal de bord du miroir, par semaine ou en calendrier,
-// reliées aux contacts, pistes et projets. Fiche d'une entrée plein écran avec trois gestes : rattacher à un
-// projet ou une piste, ouvrir le compte rendu (dans Notion, où il est rédigé), créer une action TO DO.
+// reliées aux contacts, pistes et projets. Fiche d'une entrée plein écran, onglets de l'artefact : Synthèse,
+// Compte rendu (corps de la page Notion, lu à la demande, 26/11/2026), Actions issues, Projet et initiative.
 import { journalApi } from "./api.js";
 import { interRow } from "./journee.js";
 import { jetonsHTML } from "./jetons.js";
-import { $, esc, ic, nrm, fd, toast, toastUndo, setDrawerOwner, ownsDrawer, ficheTop, renderSide, sideHTML, ficheTabs, etatChip, taSpan, chip, syncOf, syncSpan, staleBanner } from "./ui.js";
+import { contenuHTML, bindContenu, oublierBlocs } from "./contenu.js";
+import { setTaskEtat } from "./todo.js";
+import { $, esc, ic, nrm, fd, toast, toastUndo, setDrawerOwner, ownsDrawer, ficheTop, renderSide, sideHTML, ficheTabs, etatChip, taSpan, chip, syncOf, syncSpan, staleBanner, isDone } from "./ui.js";
 
 const JOURS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
 const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
@@ -140,10 +142,13 @@ function week(list) {
 
 async function openEntree(id, keepSec = false) {
   const fromList = S.data?.entrees.find((e) => e.id === id);
-  const sec = keepSec && S.open?.id === id ? S.open.sec : "synthese";
-  S.open = { id, e: S.open?.id === id ? S.open.e : null, partial: fromList, actions: S.open?.id === id ? S.open.actions : null, choix: S.open?.choix ?? S.data?.choix ?? null, error: null, sec, form: S.open?.id === id ? S.open.form : false };
+  const same = S.open?.id === id;
+  const sec = keepSec && same ? S.open.sec : "synthese";
+  S.open = { id, e: same ? S.open.e : null, partial: fromList, actions: same ? S.open.actions : null, choix: S.open?.choix ?? S.data?.choix ?? null, error: null, sec, form: same ? S.open.form : false,
+    contenu: same ? S.open.contenu : null, cErr: null, inits: S.open?.inits ?? null };
   setDrawerOwner("journal");
   renderDrawer();
+  lireContenu(id);
   try {
     const r = await journalApi.get(id);
     if (S.open?.id !== id) return;
@@ -152,7 +157,27 @@ async function openEntree(id, keepSec = false) {
   renderDrawer();
 }
 
-const SECS = { synthese: "Synthèse", actions: "Actions issues", liens: "Projet et piste" };
+/** Compte rendu : lu dans Notion par la fonction journal (cache court côté serveur), en même temps que la fiche. */
+async function lireContenu(id, frais = false) {
+  if (frais) oublierBlocs(id);
+  try {
+    const c = await journalApi.contenu(id, frais);
+    if (S.open?.id !== id) return;
+    Object.assign(S.open, { contenu: c, cErr: null });
+  } catch (e) { if (S.open?.id === id) Object.assign(S.open, { cErr: e.message }); }
+  renderDrawer();
+}
+
+/** Initiatives (base Thèmes, lue dans Notion), chargées à l'ouverture de l'onglet Projet et initiative. */
+async function lireInitiatives() {
+  const o = S.open; if (!o || o.inits || o.initsLoading) return;
+  o.initsLoading = true;
+  try { o.inits = await journalApi.initiatives(); } catch (e) { o.inits = { erreur: e.message }; }
+  o.initsLoading = false;
+  if (S.open === o) renderDrawer();
+}
+
+const SECS = { synthese: "Synthèse", cr: "Compte rendu", actions: "Actions issues", liens: "Projet et initiative" };
 
 function renderDrawer() {
   const o = S.open;
@@ -171,23 +196,33 @@ function renderDrawer() {
   const pj = e.projets.map((id) => ({ id, nom: e.projetsNoms[id] })), pi = e.pistes.map((id) => ({ id, nom: e.pistesNoms[id] }));
   const acts = o.actions || [];
   const cur = o.sec;
-  const body = { synthese: () => synthese(o, e, pj, pi, acts, when), actions: () => actions(o, e, acts), liens: () => liens(o, e, pj, pi) }[cur]();
+  if (cur === "liens") lireInitiatives();
+  const body = { synthese: () => synthese(o, e, pj, pi, acts, when), cr: () => compteRendu(o, e), actions: () => actions(o, e, acts), liens: () => liens(o, e, pj, pi) }[cur]();
   drawerHost.innerHTML = `
     <div class="dh"><div class="dact">
-      <button class="btn sm pri" data-jact="action">${ic("todo", "ic-sm")}Action</button>
-      <button class="btn sm" data-jsec="liens">${ic("link", "ic-sm")}Rattacher</button>
-      <a class="btn sm" href="${esc(e.url)}" target="_blank" rel="noopener" title="Le compte rendu est le contenu de la page Notion">${ic("book", "ic-sm")}Compte rendu</a></div>
+      <button class="btn sm pri" data-jact="action">${ic("todo", "ic-sm")}Action</button></div>
       <span class="ifmt ${k ? "" : "none"}">${ic(k || "note")}</span><div style="flex:1;min-width:0"><h1>${esc(e.titre)}</h1>
       <div class="sub">${esc(when)}${e.format ? " · " + esc(lab(e.format)) : ""}${e.duree ? ` · ${e.duree} min` : ""}</div>
       <div class="chips" style="margin-top:8px">${pj.map((x) => `<a class="chip pj" href="#/projets/${x.id}">${ic("folder", "ic-sm")}${esc(x.nom || "Projet")}</a>`).join("")}${pi.map((x) => `<a class="chip pi" href="#/pistes/${x.id}">${ic("target", "ic-sm")}${esc((x.nom || "Piste").trim())}</a>`).join("")}${e.tags.map((t) => `<span class="chip">${esc(t)}</span>`).join("")}</div></div></div>
     ${!pj.length && !pi.length ? `<div class="banner dashed">${ic("alert", "ic-sm")}<span>Cet échange n'est rattaché ni à une piste ni à un projet. <button class="lnk" data-jsec="liens">Rattacher</button></span></div>` : ""}
-    ${ficheTabs([["synthese", SECS.synthese], ["actions", SECS.actions, acts.length], ["liens", SECS.liens]], cur, "data-jsec")}
+    ${ficheTabs([["synthese", SECS.synthese], ["cr", SECS.cr], ["actions", SECS.actions, acts.length], ["liens", SECS.liens]], cur, "data-jsec")}
     <section class="cbody" aria-label="${esc(SECS[cur])}"><h2 class="ch">${esc(SECS[cur])}</h2>${body}</section>
     <p class="small muted" style="margin-top:14px">${syncSpan(o.synchro, true)}.</p>`;
 }
 
-const contactChips = (e) => e.contacts.length ? `<div class="chips">${e.contacts.map((id) => `<a class="chip" href="#/contacts/${id}">${ic("users", "ic-sm")}${esc(e.contactsNoms[id] || "Contact")}</a>`).join("")}</div>` : `<p class="small muted">Aucun contact lié.</p>`;
-const taskRow = (t) => `<a class="arow ${t.etat === "Terminé" || t.etat === "Annulé" ? "done" : ""}" href="#/todo/${t.id}"><div class="am"><div class="an">${esc(t.nom)}</div><div class="ameta chips">${t.prio === "P1" ? chip("P1", "red") : ""}${etatChip(t.etat)}${taSpan(t.typeAction)}</div></div>${t.echeance ? `<span class="due">${esc(fd(t.echeance))}</span>` : ""}</a>`;
+const contactChips = (e, ids = e.contacts) => ids.length ? `<div class="chips">${ids.map((id) => `<a class="chip" href="#/contacts/${id}">${ic("users", "ic-sm")}${esc(e.contactsNoms[id] || "Contact")}</a>`).join("")}</div>` : `<p class="small muted">Aucun contact lié.</p>`;
+// Ligne d'action de l'artefact (actRow) : case à cocher, intitulé, P1, état, projet, type d'action, échéance.
+function taskRow(t) {
+  const d = isDone(t), e = S.open?.e;
+  const pj = (t.projets || []).map((id) => e?.projetsNoms?.[id]).find(Boolean);
+  return `<div class="arow ${d ? "done" : ""}"><button class="chk ${d ? "done" : ""}" data-jdone="${t.id}" ${S.busy ? "disabled" : ""} aria-label="${d ? "Rouvrir la tâche" : "Marquer comme terminée"} : ${esc(t.nom)}">${d ? ic("check", "ic-sm") : ""}</button>
+    <a class="am" href="#/todo/${t.id}"><div class="an">${esc(t.nom)}</div><div class="ameta chips">${t.prio === "P1" && !d ? chip("P1", "red") : ""}${etatChip(t.etat)}${pj ? `<span class="chip pj">${ic("folder", "ic-sm")}${esc(pj)}</span>` : ""}${taSpan(t.typeAction)}</div></a>${t.echeance ? `<span class="due">${esc(fd(t.echeance))}</span>` : ""}</div>`;
+}
+
+// « La piste de cet échange est devenue le projet … » (relSuggest de l'artefact).
+const suggestions = (e) => (e.suggestions || []).map((x) => `<div class="banner info">${ic("folder", "ic-sm")}<span>La piste de cet échange est devenue le projet <b>${esc(x.nom)}</b>.</span><button class="btn sm pri" data-jrelpj="${x.id}" ${S.busy ? "disabled" : ""}>Rattacher au projet</button></div>`).join("");
+
+const crHTML = (o, e) => contenuHTML(o.contenu, { entree: o.id, url: e.url, erreur: o.cErr });
 
 function synthese(o, e, pj, pi, acts, when) {
   return `<div class="sfacts">
@@ -196,11 +231,18 @@ function synthese(o, e, pj, pi, acts, when) {
       <div><span>Piste</span><b>${pi.length ? pi.map((x) => esc((x.nom || "").trim())).join(", ") : "Aucune"}</b></div>
       <div><span>Projet</span><b>${pj.length ? pj.map((x) => esc(x.nom || "")).join(", ") : "Aucun"}</b></div>
     </div>
-    <h3 class="sh">Contacts</h3>${contactChips(e)}
+    ${suggestions(e)}
     ${e.syntheseAgent ? `<h3 class="sh">Synthèse agent</h3><p class="notes">${esc(e.syntheseAgent)}</p>` : ""}
-    <h3 class="sh">Actions issues <button class="lnk" data-jsec="actions">${acts.length}</button></h3>${acts.length ? `<div class="list">${acts.slice(0, 4).map(taskRow).join("")}</div>` : `<p class="small muted">Aucune action rattachée à cet échange.</p>`}
-    <h3 class="sh">Compte rendu</h3><p class="small">Le compte rendu est le contenu de la page Notion de l'échange${e.idPlaud ? ", importé de Plaud" : ""}. Il n'est pas recopié dans le cockpit.</p>
-    <div class="dact" style="margin-top:8px"><a class="btn sm" href="${esc(e.url)}" target="_blank" rel="noopener">${ic("ext", "ic-sm")}Ouvrir le compte rendu dans Notion</a></div>`;
+    ${acts.length ? `<h3 class="sh">Actions issues <button class="lnk" data-jsec="actions">${acts.length}</button></h3><div class="list">${acts.slice(0, 4).map(taskRow).join("")}</div>` : ""}
+    <h3 class="sh">Compte rendu</h3>${crHTML(o, e)}`;
+}
+
+function compteRendu(o, e) {
+  const c = o.contenu;
+  const lu = c?.lu_le ? new Date(c.lu_le).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }).replace(":", " h ") : null;
+  return `${crHTML(o, e)}
+    <p class="small muted" style="margin-top:14px">${c ? `Lu dans Notion à ${esc(lu)}${c.suivies?.length ? `, dans ${c.suivies.length > 1 ? "les sous-pages" : "la sous-page"} ${c.suivies.map((x) => `« ${esc(x.titre)} »`).join(", ")}` : ""}. ` : ""}Le compte rendu se modifie dans Notion.
+      <button class="lnk" data-jact="relire">Relire dans Notion</button> · <a href="${esc(e.url)}" target="_blank" rel="noopener">Ouvrir la page</a></p>`;
 }
 
 function actions(o, e, acts) {
@@ -216,44 +258,90 @@ function actions(o, e, acts) {
     ${acts.length ? `<div class="list">${acts.map(taskRow).join("")}</div>` : `<p class="empty">Aucune action rattachée à cet échange.</p>`}`;
 }
 
-// Rattachements en jetons (artefact) : chaque ajout ou retrait part aussitôt dans Notion, avec « Annuler ».
+// Projet et initiative (relForm de l'artefact) : projet, initiative, piste, contacts. Chaque ajout ou retrait part
+// aussitôt dans Notion, avec « Annuler ». Choisir une initiative rattache aussi à son projet.
 function liens(o, e, pj, pi) {
-  const ch = o.choix || { projets: [], pistes: [] };
+  const ch = o.choix || { projets: [], pistes: [], contacts: [] };
   const field = (id, rel, label, ph, items, list, more, href, icn, cls) => jetonsHTML({
     id, label, placeholder: ph, busy: S.busy, locked: more,
     items: items.map((x) => ({ id: x.id, nom: x.nom || "Sans nom", href: href(x.id), icon: icn, cls })),
     choices: list.map((x) => ({ id: x.id, nom: x.nom, sub: x.etat || (x.issue && x.issue !== "En cours" ? x.issue : "") })),
     onAdd: (xid) => rattacher(rel, { add: [xid] }), onRemove: (xid) => rattacher(rel, { remove: [xid] }),
   });
-  return `<div class="form">
+  const cs = e.contacts.map((id) => ({ id, nom: e.contactsNoms[id] || "Contact" }));
+  const ded = (e.contactsParPiste || []);
+  return `${suggestions(e)}<div class="form">
     <div class="fld"><span class="lb">Projet</span>${field("jl-pr", "Projets", "Projets de l'échange", "Rattacher à un projet", pj, ch.projets, e.projetsMore, (id) => `#/projets/${id}`, "folder", "pj")}</div>
+    <div class="fld"><label for="jl-th">Initiative</label>${initiativeSel(o, e)}<span class="small muted">Choisir une initiative rattache aussi à son projet.</span></div>
     <div class="fld"><span class="lb">Piste</span>${field("jl-pi", "Piste/Opportunité", "Pistes de l'échange", "Rattacher à une piste", pi, ch.pistes, e.pistesMore, (id) => `#/pistes/${id}`, "target", "")}</div>
-    <div class="fld"><span class="lb">Contacts</span>${contactChips(e)}<span class="small muted">Les contacts se modifient dans Notion.</span></div>
-    <p class="small muted">Chaque ajout ou retrait part tout de suite dans Notion. Une erreur ? La croix retire le lien, et « Annuler » le remet. Rien ne se supprime : retirer un lien ne touche ni le projet ni la piste.</p></div>`;
+    <div class="fld"><span class="lb">Contacts</span>${field("jl-c", "Contacts", "Contacts de l'échange", "Ajouter un contact", cs, (ch.contacts || []), e.contactsMore, (id) => `#/contacts/${id}`, "users", "")}</div>
+    <p class="small muted">Chaque ajout ou retrait part tout de suite dans Notion. Une erreur ? La croix retire le lien, et « Annuler » le remet. Rien ne se supprime : retirer un lien ne touche ni le projet ni la piste.</p></div>
+    ${ded.length ? `<h3 class="sh">Aussi liés par la piste</h3>${contactChips(e, ded)}` : ""}`;
+}
+
+// Liste des initiatives groupées par projet, projets de l'échange en tête (thOptions de l'artefact).
+function initiativeSel(o, e) {
+  const I = o.inits;
+  const cur = (e.themesIds || [])[0] || "";
+  if (!I || I.erreur) return `<select class="sel" id="jl-th" disabled><option>${I?.erreur ? esc(I.erreur) : "Chargement des initiatives…"}</option></select>`;
+  const groups = new Map();
+  for (const t of I.initiatives) { const pr = t.projets[0]; if (!pr || !I.projetsNoms[pr]) continue; if (!groups.has(pr)) groups.set(pr, []); groups.get(pr).push(t); }
+  const order = [...groups.keys()].sort((a, b) => (e.projets.includes(b) - e.projets.includes(a)) || I.projetsNoms[a].localeCompare(I.projetsNoms[b], "fr"));
+  const known = I.initiatives.some((t) => t.id === cur);
+  return `<select class="sel" id="jl-th" data-jth="1" ${S.busy || e.themesMore ? "disabled" : ""}><option value="">Aucune initiative</option>${cur && !known ? `<option value="${esc(cur)}" selected>Initiative actuelle</option>` : ""}${order.map((pid) => `<optgroup label="${esc(I.projetsNoms[pid])}">${groups.get(pid).map((t) => `<option value="${t.id}" ${t.id === cur ? "selected" : ""}>${esc(t.nom)}</option>`).join("")}</optgroup>`).join("")}</select>`;
+}
+
+async function choisirInitiative(th) {
+  const o = S.open; if (!o?.e || S.busy) return;
+  const e = o.e, cur = e.themesIds || [];
+  const changes = { "Thèmes": th ? { add: [th], remove: cur.filter((x) => x !== th) } : { remove: cur } };
+  const t = th ? o.inits?.initiatives?.find((x) => x.id === th) : null;
+  const pr = t?.projets?.[0];
+  if (pr && !e.projets.includes(pr)) changes["Projets"] = { add: [pr] };
+  await ecrire(changes, th ? (changes["Projets"] ? "Initiative et projet rattachés dans Notion." : "Initiative rattachée dans Notion.") : "Initiative retirée dans Notion.");
 }
 
 async function rattacher(rel, change, undoable = true) {
   const o = S.open; if (!o || S.busy) return;
+  const eid = o.id;
+  const ok = await ecrire({ [rel]: change }, undoable ? null : (change.add ? "Lien remis dans Notion." : "Lien retiré de nouveau."));
+  if (ok && undoable) toastUndo(change.add ? "Rattaché dans Notion." : "Lien retiré dans Notion.", () => {
+    const inv = change.add ? { remove: change.add } : { add: change.remove };
+    if (S.open?.id === eid) rattacher(rel, inv, false);
+    else journalApi.rattacher(eid, { [rel]: inv }).then(() => { toast("Lien rétabli dans Notion."); load(true); }, (err) => toast(err.message, "err"));
+  });
+}
+
+/** Écrit des rattachements dans Notion ; la fiche suit la page renvoyée par Notion, sans relire le miroir. */
+async function ecrire(changes, msg) {
+  const o = S.open; if (!o || S.busy) return false;
   S.busy = true; renderDrawer();
   try {
-    const r = await journalApi.rattacher(o.id, { [rel]: change });
-    const msg = change.add ? "Rattaché dans Notion." : "Lien retiré dans Notion.";
-    const eid = o.id;
-    if (undoable) toastUndo(msg, () => {
-      const inv = change.add ? { remove: change.add } : { add: change.remove };
-      if (S.open?.id === eid) rattacher(rel, inv, false);
-      else journalApi.rattacher(eid, { [rel]: inv }).then(() => { toast("Lien rétabli dans Notion."); load(true); }, (err) => toast(err.message, "err"));
-    });
-    else toast(change.add ? "Lien remis dans Notion." : "Lien retiré de nouveau.");
-    // La fiche suit la réponse de Notion (la page renvoyée après l'écriture), sans relire le miroir.
+    const r = await journalApi.rattacher(o.id, changes);
+    if (msg) toast(msg);
     const nm = (list, id) => (list || []).find((x) => x.id === id)?.nom;
+    const names = (ids, old, list, def) => Object.fromEntries(ids.map((id) => [id, old[id] ?? nm(list, id) ?? def]));
     Object.assign(o.e, {
-      projets: r.entree.projets, pistes: r.entree.pistes,
-      projetsNoms: Object.fromEntries(r.entree.projets.map((id) => [id, o.e.projetsNoms[id] ?? nm(o.choix?.projets, id) ?? "Projet"])),
-      pistesNoms: Object.fromEntries(r.entree.pistes.map((id) => [id, o.e.pistesNoms[id] ?? nm(o.choix?.pistes, id) ?? "Piste"])),
+      projets: r.entree.projets, pistes: r.entree.pistes, contacts: r.entree.contacts, themesIds: r.entree.themesIds,
+      projetsNoms: names(r.entree.projets, o.e.projetsNoms, o.choix?.projets, "Projet"),
+      pistesNoms: names(r.entree.pistes, o.e.pistesNoms, o.choix?.pistes, "Piste"),
+      contactsNoms: { ...o.e.contactsNoms, ...names(r.entree.contacts, o.e.contactsNoms, o.choix?.contacts, "Contact") },
     });
+    o.e.suggestions = (o.e.suggestions || []).filter((x) => !o.e.projets.includes(x.id));
+    o.e.contactsParPiste = (o.e.contactsParPiste || []).filter((x) => !o.e.contacts.includes(x));
     load(true);
-  } catch (e) { toast(e.message, "err"); }
+    return true;
+  } catch (e) { toast(e.message, "err"); return false; }
+  finally { S.busy = false; renderDrawer(); }
+}
+
+/** Case à cocher d'une action issue : même écriture que la vue TO DO. */
+async function cocher(id) {
+  const o = S.open; const t = o?.actions?.find((x) => x.id === id);
+  if (!t || S.busy) return;
+  S.busy = true; renderDrawer();
+  try { const r = await setTaskEtat(id, isDone(t) ? "A faire" : "Terminé"); Object.assign(t, { etat: r?.etat ?? (isDone(t) ? "A faire" : "Terminé") }); }
+  catch (e) { toast(e.message, "err"); }
   finally { S.busy = false; renderDrawer(); }
 }
 
@@ -277,7 +365,17 @@ export function bindJournalDrawerEvents(root) {
     const act = e.target.closest("[data-jact]")?.dataset.jact;
     if (act === "action") { S.open.sec = "actions"; S.open.form = true; renderDrawer(); $("#ja-n", root)?.focus(); return; }
     if (act === "noform") { S.open.form = false; renderDrawer(); return; }
+    if (act === "relire") { S.open.contenu = null; renderDrawer(); lireContenu(S.open.id, true); return; }
+    const dn = e.target.closest("[data-jdone]");
+    if (dn && !dn.disabled) { cocher(dn.dataset.jdone); return; }
+    const sp = e.target.closest("[data-jrelpj]");
+    if (sp && !sp.disabled) { S.open.sec = "liens"; rattacher("Projets", { add: [sp.dataset.jrelpj] }); return; }
   });
+  root.addEventListener("change", (e) => {
+    const th = e.target.closest?.("[data-jth]");
+    if (th && ownsDrawer("journal") && S.open) choisirInitiative(th.value);
+  });
+  bindContenu(root, () => { if (ownsDrawer("journal")) renderDrawer(); });
   root.addEventListener("submit", async (e) => {
     const form = e.target.closest?.("[data-jform='action']");
     if (!form || !ownsDrawer("journal") || !S.open) return;

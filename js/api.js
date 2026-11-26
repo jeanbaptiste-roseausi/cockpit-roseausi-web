@@ -114,4 +114,8 @@ export const journalApi = {
   get: (id) => call("journal", `/${id}`),
   rattacher: (id, changes) => call("journal", `/${id}`, { method: "PATCH", body: { changes } }),
   action: (id, values) => call("journal", `/${id}/action`, { method: "POST", body: { values } }),
+  // Compte rendu (corps de la page Notion, lu à la demande) et bloc replié (transcript, sous-page).
+  contenu: (id, frais = false) => call("journal", `/${id}/contenu${frais ? "?frais=1" : ""}`),
+  bloc: (id, bloc) => call("journal", `/${id}/contenu/${bloc}`),
+  initiatives: () => call("journal", "/initiatives"),
 };

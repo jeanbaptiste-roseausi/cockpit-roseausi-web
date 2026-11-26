@@ -877,3 +877,50 @@ body.agp-ancre .app { padding-right: calc(var(--agp-w) + 32px); }
 .ag-ck { width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--teal-strong); flex: none; cursor: pointer; }
 .ag-grp-f { display: flex; flex-wrap: wrap; gap: 6px; }
 @media (max-width: 900px) { .ag-gl { padding: 8px 2px; } .ag-ck { width: 24px; height: 24px; } }
+
+/* Compte rendu d'un échange (26/11/2026) : corps de la page Notion, rendu de l'artefact (.pgbody, .pgc). */
+.pgbody { margin-top: 10px; font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; min-width: 0; }
+.pgbody h4 { font-size: 15px; margin: 14px 0 4px; color: var(--teal-strong); }
+.pgbody h4.n1 { font-size: 16.5px; }
+.pgbody h4.n3, .pgbody h4.n4 { font-size: 14.5px; }
+.pgbody ul, .pgbody ol { margin: 4px 0 8px; padding-left: 20px; }
+.pgbody li { margin: 3px 0; }
+.pgbody p { margin: 6px 0; }
+.pgbody hr { border: 0; border-top: 1px solid var(--line); margin: 12px 0; }
+.pgbody a { color: var(--teal-strong); }
+.pgbody code { font-size: 12.5px; background: var(--surface-alt); border-radius: 4px; padding: 0 4px; }
+.pgbody pre { background: var(--surface-alt); border-radius: 8px; padding: 10px; overflow-x: auto; font-size: 12.5px; }
+.pgbody pre code { background: none; padding: 0; }
+.pgbody blockquote { margin: 8px 0; padding: 4px 12px; border-left: 3px solid var(--line-strong); color: var(--ink-muted); }
+.pgbody .pgcallout { display: flex; gap: 8px; margin: 8px 0; padding: 10px 12px; border-radius: var(--r-panel); background: var(--surface-alt); }
+.pgbody .pgcallout > div { flex: 1; min-width: 0; }
+.pgbody .pgcallout p:first-child { margin-top: 0; }
+.pgbody ul.todo { list-style: none; padding-left: 2px; }
+.pgbody ul.todo li { display: flex; gap: 8px; align-items: flex-start; }
+.pgbody ul.todo li > span:nth-child(2) { flex: 1; min-width: 0; }
+.pgbody ul.todo li.done > span:nth-child(2) { text-decoration: line-through; color: var(--ink-muted); }
+.pgbody .tdbox { flex: none; width: 16px; height: 16px; margin-top: 3px; border: 1.5px solid var(--teal); border-radius: 4px; display: grid; place-items: center; font-size: 11px; line-height: 1; color: var(--on-teal); }
+.pgbody .tdbox.on { background: var(--teal); }
+.pgbody .stb { font-size: 11.5px; padding: 0 6px; border-radius: var(--r-chip); background: var(--surface-alt); color: var(--ink-muted); }
+.pgbody .stb.done { background: var(--teal-50); color: var(--teal-strong); }
+.pgbody details { margin: 8px 0; border: 1px solid var(--line); border-radius: var(--r-panel); padding: 6px 12px; }
+.pgbody details > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; font-weight: 700; min-height: 32px; }
+.pgbody details > summary::-webkit-details-marker { display: none; }
+.pgbody details > summary::after { content: '▸'; color: var(--teal-strong); font-size: 14px; margin-left: auto; }
+.pgbody details[open] > summary::after { content: '▾'; }
+.pgbody details.h1 > summary, .pgbody details.h2 > summary { color: var(--teal-strong); font-size: 15px; }
+.pgbody .pgsub > summary small { font-weight: 400; color: var(--ink-muted); }
+.pgbody .pgsub > summary .ic { color: var(--teal-strong); }
+.pgbody .pgsec + .pgsec { margin-top: 18px; padding-top: 10px; border-top: 1px solid var(--line); }
+.pgbody .pgtbl { margin: 8px 0 12px; overflow-x: auto; max-width: 100%; }
+.pgbody table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+.pgbody th, .pgbody td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+.pgbody th { background: var(--surface-alt); font-weight: 700; }
+/* Téléphone : chaque ligne du tableau devient une carte, l'intitulé de colonne devant chaque cellule. */
+@media (max-width: 600px) {
+  .pgbody .pgtbl.stack table, .pgbody .pgtbl.stack tbody, .pgbody .pgtbl.stack tr, .pgbody .pgtbl.stack td { display: block; width: 100%; }
+  .pgbody .pgtbl.stack thead { display: none; }
+  .pgbody .pgtbl.stack tr { border: 1px solid var(--line); border-radius: var(--r-panel); margin: 0 0 8px; padding: 4px 0; }
+  .pgbody .pgtbl.stack td { border: 0; padding: 4px 10px; }
+  .pgbody .pgtbl.stack td[data-l]::before { content: attr(data-l); display: block; font-size: 11.5px; font-weight: 700; color: var(--ink-muted); text-transform: uppercase; letter-spacing: .02em; }
+}
