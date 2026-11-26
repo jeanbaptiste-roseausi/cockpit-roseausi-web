@@ -8,8 +8,8 @@ import { projetsView, bindProjetsEvents, bindProjetsDrawerEvents } from "./proje
 import { pistesView, bindPistesEvents, bindPistesDrawerEvents } from "./pistes.js";
 import { reseauView, bindReseauEvents } from "./reseau.js";
 import { mountSearch } from "./search.js";
-import { $, esc, ic, tickSync, toast } from "./ui.js";
-import { miroirApi, simulation } from "./api.js";
+import { $, esc, ic, tickSync, toast, bindNotes } from "./ui.js";
+import { miroirApi } from "./api.js";
 
 // Vues disponibles, dans l'ordre des onglets. L'agent de fiche et les mails viendront s'ajouter ici.
 const VIEWS = [contactsView, todoView, projetsView, pistesView, reseauView];
@@ -35,7 +35,6 @@ function shell() {
         <button class="iconbtn mob-only" data-act="opensearch" aria-label="Rechercher">${ic("search")}</button>
         <button class="iconbtn mob-only" data-act="reload" aria-label="Actualiser">${ic("refresh")}</button>
         <button class="iconbtn mob-only" data-act="logout" aria-label="Déconnexion">${ic("logout")}</button></div>
-      ${simulation() ? `<div class="banner sim">${ic("alert", "ic-sm")}<span><b>Simulation : Notion indisponible.</b> Les lectures viennent du miroir, les modifications sont refusées. Pour arrêter, ouvre l'adresse avec <code>?simuler=non</code>.</span></div>` : ""}
       <main id="view"></main>
     </div>
     <nav id="tabbar" aria-label="Navigation">${VIEWS.map((v) => `<button class="${v === current ? "on" : ""}" data-nav="${v.id}">${ic(v.icon)}${esc(v.short || v.label)}</button>`).join("")}</nav>`;
@@ -162,6 +161,7 @@ bindProjetsDrawerEvents($("#dr-body"));
 bindPistesEvents($("#app"));
 bindPistesDrawerEvents($("#dr-body"));
 bindReseauEvents($("#app"));
+bindNotes($("#dr-side"));
 
 // Erreur renvoyée par Supabase dans l'adresse (lien expiré, déjà utilisé…).
 const urlErr = new URLSearchParams(location.hash.slice(1));

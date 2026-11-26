@@ -6,15 +6,9 @@ export class ApiError extends Error {
   constructor(status, code, message, details) { super(message); this.status = status; this.code = code; this.details = details; }
 }
 
-// Recette du lot M : « ?simuler=notion-indisponible » dans l'adresse fait refuser tout appel à Notion
-// par les fonctions (pour cet onglet) ; « ?simuler=non » arrête. Rien d'autre ne change.
-const SIM_KEY = "cockpit.simulation";
-try {
-  const q = new URLSearchParams(location.search).get("simuler");
-  if (q === "notion-indisponible") sessionStorage.setItem(SIM_KEY, q);
-  if (q === "non") sessionStorage.removeItem(SIM_KEY);
-} catch { /* stockage indisponible : pas de simulation */ }
-export const simulation = () => { try { return sessionStorage.getItem(SIM_KEY); } catch { return null; } };
+// Le paramètre ?simuler (panne de Notion simulée, recette du lot M) a été retiré le 26/11/2026 :
+// une panne ne se simule plus que dans les tests locaux (tests/page.test.mjs).
+try { sessionStorage.removeItem("cockpit.simulation"); } catch { /* stockage indisponible */ }
 
 export async function call(fn, path = "", { method = "GET", body } = {}) {
   const session = await currentSession();
@@ -27,7 +21,6 @@ export async function call(fn, path = "", { method = "GET", body } = {}) {
         Authorization: `Bearer ${session.access_token}`,
         apikey: SUPABASE_PUBLISHABLE_KEY,
         ...(body ? { "Content-Type": "application/json" } : {}),
-        ...(simulation() ? { "x-cockpit-simulation": simulation() } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
     });
@@ -49,21 +42,21 @@ export const contactsApi = {
   list: () => call("contacts"),
   schema: () => call("contacts", "/schema"),
   get: (id) => call("contacts", `/${id}`),
-  update: (id, changes) => call("contacts", `/${id}`, { method: "PATCH", body: { changes } }),
+  update: (id, changes, avant) => call("contacts", `/${id}`, { method: "PATCH", body: { changes, ...(avant ? { avant } : {}) } }),
 };
 
 export const todoApi = {
   list: ({ scope, contact } = {}) => call("todo", contact ? `?contact=${encodeURIComponent(contact)}` : scope ? `?scope=${encodeURIComponent(scope)}` : ""),
   schema: () => call("todo", "/schema"),
   get: (id) => call("todo", `/${id}`),
-  update: (id, changes) => call("todo", `/${id}`, { method: "PATCH", body: { changes } }),
+  update: (id, changes, avant) => call("todo", `/${id}`, { method: "PATCH", body: { changes, ...(avant ? { avant } : {}) } }),
   create: (values) => call("todo", "", { method: "POST", body: { values } }),
 };
 
 export const projetsApi = {
   list: () => call("projets"),
   get: (id) => call("projets", `/${id}`),
-  update: (id, changes) => call("projets", `/${id}`, { method: "PATCH", body: { changes } }),
+  update: (id, changes, avant) => call("projets", `/${id}`, { method: "PATCH", body: { changes, ...(avant ? { avant } : {}) } }),
 };
 
 // Lot 2 : pistes (base Pistes/Opportunités) et réseau (parcours et mises en lien, base Contacts).

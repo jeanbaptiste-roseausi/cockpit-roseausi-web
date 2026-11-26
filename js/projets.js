@@ -2,9 +2,9 @@
 // avec la page Contexte, les tâches ouvertes et les derniers échanges, changement d'état.
 import { projetsApi } from "./api.js";
 import { setTaskEtat } from "./todo.js";
-import { $, esc, ic, av, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, fmtIcon, taSpan, syncOf, syncSpan, staleBanner } from "./ui.js";
+import { $, esc, ic, av, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, fmtIcon, taSpan, syncOf, syncSpan, staleBanner, setNoteSaver , swapHTML } from "./ui.js";
 
-const S = { items: null, etats: [], regles: null, loading: false, error: null, fetchedAt: null, synchro: null, f: { v: "En cours", q: "" }, open: null };
+const S = { items: null, etats: [], options: null, thHide: {}, thNone: false, thSel: null, regles: null, loading: false, error: null, fetchedAt: null, synchro: null, f: { v: "En cours", q: "" }, open: null };
 let host = null, drawerHost = null;
 
 export const projetsView = {
@@ -97,6 +97,7 @@ async function openProjet(id) {
     if (S.open?.id !== id) return;
     S.open.p = r.projet; S.open.fetchedAt = r.fetchedAt; S.open.synchro = syncOf(r);
     if (r.etats?.length) S.etats = r.etats;
+    if (r.options) S.options = r.options;
   } catch (e) { if (S.open?.id === id) S.open.error = e.message; }
   renderDrawer();
 }
@@ -106,18 +107,24 @@ function renderDrawer() {
   if (!o || !drawerHost || !ownsDrawer("projets")) return;
   const p = o.p;
   ficheTop({ kind: "Projet", url: p?.url || null, side: true });
-  renderSide("projets", sideHTML({ notesMissing: "La propriété « Mes notes » du projet n'est pas encore lue par le cockpit. Elle le sera avec les données des modules en ligne, après le lot 1.", notesHint: "Non lues pour l'instant" }));
+  // Lot 1 bis : Mes notes du projet, modifiables si Notion les donne sans mise en forme.
+  renderSide("projets", sideHTML({
+    notes: [{ label: "Mes notes", text: p && !p.partial ? p.mesNotes : "", prop: "Mes notes", editable: !!(p && !p.partial && p.textesModifiables?.["Mes notes"] && canEdit("Mes notes")), locked: p?.textesModifiables?.["Mes notes"] === false, saved: o.savedNote === "Mes notes" }],
+    notesMissing: !p || p.partial ? "Chargement des notes…" : !("mesNotes" in p) ? "Mes notes du projet non lues : la fonction projets n'est pas encore à jour." : "",
+  }));
   if (!p) { drawerHost.innerHTML = o.error ? `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(o.error)}</span></div>` : `<p class="empty">Chargement du projet…</p>`; return; }
   const b = p.budget, full = !p.partial;
   const done = o.done || (o.done = new Map());
-  drawerHost.innerHTML = `
+  swapHTML(drawerHost, `
     <div class="pj-head"><div class="dact">
         <a class="btn sm pri" href="#/todo/new/projet/${p.id}">${ic("plus", "ic-sm")}Tâche</a>
+        ${full && S.options ? `<button class="btn sm" data-pparam="1" aria-expanded="${o.params ? "true" : "false"}">${ic("note", "ic-sm")}Paramètres</button>` : ""}
         ${full ? (p.contexte ? `<a class="btn sm" href="${esc(p.contexte.url)}" target="_blank" rel="noopener">${ic("ext", "ic-sm")}Page Contexte</a>` : `<span class="chip dash">Pas de page Contexte</span>`) : ""}
       </div>
       <div style="flex:1;min-width:0"><div class="chips" style="margin-bottom:8px">${meteoChip(p.meteo)}${etatChip(p.etat, true)}${p.regulier ? `<span class="chip">Récurrent</span>` : ""}${sleepChip(p)}</div>
       <h1>${esc(p.nom)}</h1>${p.nomComplet && p.nomComplet !== p.nom ? `<div class="sub">${esc(p.nomComplet)}</div>` : ""}</div></div>
     ${o.error ? `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(o.error)}</span></div>` : ""}
+    ${full && o.params ? paramForm(p, o) : ""}
     ${p.motifMeteo ? `<div class="banner ${[...(p.meteo || " ")][0] === "🔴" ? "" : "info"}">${ic("alert", "ic-sm")}<span>${esc(p.motifMeteo)}</span></div>` : ""}
     <div class="pkpis">
       <div class="pk"><span>Budget consommé</span><b class="${b.niveau === "crit" ? "neg" : b.niveau === "warn" ? "warn" : ""}">${b.consommePct != null ? pct(b.consommePct) : "–"}</b><small>${budgetHint(b)}</small>${gauge(b)}</div>
@@ -134,10 +141,12 @@ function renderDrawer() {
       <section class="sec"><h2>Derniers échanges <span class="count">${full ? p.echanges.length : ""}</span></h2>
         ${!full ? `<p class="empty">Chargement…</p>` : p.echanges.length ? `<div class="list">${p.echanges.map((e) => `<a class="row" href="${esc(e.url)}" target="_blank" rel="noopener">${fmtIcon(e.format)}<div class="rm"><div class="rt">${esc(e.titre)}</div><div class="rs">${esc(fd(e.date))}${e.format ? " · " + esc(e.format) : ""}</div></div>${ic("ext", "ic-sm")}</a>`).join("")}</div>` : `<p class="empty">Aucun échange au journal.</p>`}</section>
     </div>
+    ${full && p.syntheseAgent ? `<section class="sec"><h2>Synthèse agent</h2><p class="notes">${esc(p.syntheseAgent)}</p></section>` : ""}
+    ${full && (p.themesListe || []).length ? `<section class="sec"><h2>Timeline par initiative <span class="count">${p.themesListe.length}</span></h2>${timelineHTML(p)}</section>` : ""}
     ${full && p.interlocuteurs.length ? `<section class="sec"><h2>Interlocuteurs</h2><div class="chips">${p.interlocuteurs.map((c) => `<a class="chip pers" href="#/contacts/${c.id}">${av({ nom: c.nom, type: "Personne" }, "xs")}${esc(c.nom)}</a>`).join("")}</div><p class="small muted" style="margin-top:8px">Contacts cités dans les derniers échanges et les tâches ouvertes.</p></section>` : ""}
     ${budgetSection(p)}
     ${infoSection(p, full)}
-    <p class="small muted">${o.synchro ? syncSpan(o.synchro, true) : "Lu dans Notion"}${p.contexteIndisponible ? ". Page Contexte, opportunités et thèmes non lus : Notion ne répond pas" : ""}. Fiche modifiée le ${esc(new Date(p.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}${p.contexte?.modifie ? ` ; page Contexte modifiée le ${esc(new Date(p.contexte.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}` : ""}.</p>`;
+    <p class="small muted">${o.synchro ? syncSpan(o.synchro, true) : "Lu dans Notion"}${p.contexteIndisponible ? ". Page Contexte, opportunités et thèmes non lus : Notion ne répond pas" : ""}. Fiche modifiée le ${esc(new Date(p.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}${p.contexte?.modifie ? ` ; page Contexte modifiée le ${esc(new Date(p.contexte.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}` : ""}.</p>`);
 }
 
 // ---------------- Budget et informations ----------------
@@ -188,6 +197,7 @@ function infoSection(p, full) {
   if (p.derniereActivite) line("Dernière activité", `${d(p.derniereActivite)} <span class="small muted">(journal ou mail, écrite chaque nuit)</span>`); else missing.push("dernière activité");
   line("Météo hebdo", p.meteoHebdo ? "Oui, suivi par l'automate du vendredi" : "Non");
   if (p.projetToggl) line("Projet Toggl", esc(p.projetToggl)); else missing.push("projet Toggl (nom identique)");
+  if (full && !p.syntheseAgent) missing.push("synthèse agent");
   const opp = full ? p.opportunitesListe || [] : [];
   // Liens de la relation qui ne mènent pas à une page de la base visée (page déplacée, corbeille).
   const hors = (n, k, base) => full && n > k ? `<p class="nr">${n - k} lien${n - k > 1 ? "s" : ""} de la relation mène${n - k > 1 ? "nt" : ""} à une page hors de la base ${base} (déplacée ou supprimée), non affiché${n - k > 1 ? "s" : ""}.</p>` : "";
@@ -229,12 +239,143 @@ async function setState(s) {
   if ((s === "Terminé" || s === "Annulé") && !confirm(`Passer le projet « ${o.p.nom} » à l'état ${s} ?`)) return;
   o.saving = true; renderDrawer();
   try {
-    const r = await projetsApi.update(o.id, { "État": s });
-    o.p = r.projet; o.fetchedAt = r.fetchedAt; o.synchro = syncOf(r);
-    if (S.items) { const i = S.items.findIndex((x) => x.id === o.id); if (i >= 0) S.items[i] = { ...S.items[i], etat: r.projet.etat, modifie: r.projet.modifie }; }
+    await applyUpdate({ "État": s });
     toast(`État du projet : ${s}.`);
   } catch (e) { toast(e.message, "err"); }
   finally { o.saving = false; renderDrawer(); render(); }
+}
+
+// ---------------- Paramètres du projet (lot 1 bis, POC) ----------------
+// Nom, météo, motif, prochain jalon et sa date, écrits dans Notion. Heures par jour, TJ cible et couleur
+// du projet n'existent pas dans Notion : ils ne sont pas proposés (voir README).
+
+const canEdit = (n) => (S.options?.modifiables || []).includes(n);
+const PTEXTES = ["Motif météo", "Prochain jalon", "Mes notes"];
+
+function paramForm(p, o) {
+  const v = p.parametres || {};
+  const busy = o.saving;
+  const locked = (n) => p.textesModifiables && p.textesModifiables[n] === false;
+  const txt = (n, id, lab, rows) => !canEdit(n) ? "" : locked(n)
+    ? `<div class="fld wide"><span class="lb">${lab}</span><p class="notes">${esc(v[n] || "")}</p><span class="small muted">Mise en forme dans Notion : à modifier dans Notion.</span></div>`
+    : `<div class="fld wide"><label for="${id}">${lab}</label><textarea id="${id}" data-param="${esc(n)}" rows="${rows}" maxlength="10000">${esc(v[n] || "")}</textarea></div>`;
+  const meteo = S.options?.meteo || [];
+  return `<form class="form paramform" id="pp-form" onsubmit="return false">
+    <h2 class="wide" style="margin:0">Paramètres du projet</h2>
+    ${canEdit("Nom") ? `<div class="fld wide"><label for="pp-n">Nom dans Notion</label><input id="pp-n" data-param="Nom" value="${esc(v["Nom"] || "")}" required autocomplete="off"></div>` : ""}
+    ${canEdit("Météo") ? `<div class="fld"><label for="pp-m">Météo</label><select id="pp-m" data-param="Météo"><option value="">Non renseignée</option>${(meteo.includes(v["Météo"]) || !v["Météo"] ? meteo : [v["Météo"], ...meteo]).map((x) => `<option ${x === v["Météo"] ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></div>` : ""}
+    ${canEdit("Date prochain jalon") ? `<div class="fld"><label for="pp-dj">Date du jalon</label><input id="pp-dj" type="date" data-param="Date prochain jalon" value="${esc(String(v["Date prochain jalon"] || "").slice(0, 10))}"></div>` : ""}
+    ${txt("Motif météo", "pp-motif", "Motif de la météo", 2)}
+    ${txt("Prochain jalon", "pp-jal", "Prochain jalon", 2)}
+    <p class="small muted wide">La météo et son motif sont aussi écrits par un automate (chaque nuit) : il peut les remplacer à son prochain passage. Heures par jour, TJ cible et couleur du projet n'existent pas dans Notion.</p>
+    <div class="mfoot wide"><button class="btn sm" type="button" data-pparam="0">Fermer</button><button class="btn sm pri" type="button" data-psave="1" ${busy ? "disabled" : ""}>${busy ? "Enregistrement…" : "Enregistrer dans Notion"}</button></div>
+  </form>`;
+}
+
+async function saveParams() {
+  const o = S.open, p = o?.p;
+  if (!p || o.saving) return;
+  const v = p.parametres || {};
+  const changes = {}, avant = {};
+  for (const el of drawerHost.querySelectorAll("#pp-form [data-param]")) {
+    const n = el.dataset.param, val = el.value.trim();
+    const old = n === "Date prochain jalon" ? String(v[n] || "").slice(0, 10) : String(v[n] ?? "").trim();
+    if (val === old) continue;
+    if (n === "Nom" && !val) { toast("Le nom du projet ne peut pas être vide.", "err"); return; }
+    changes[n] = val || null;
+    if (PTEXTES.includes(n)) avant[n] = v[n] ?? "";
+  }
+  if (!Object.keys(changes).length) { o.params = false; renderDrawer(); return; }
+  o.saving = true; renderDrawer();
+  try {
+    await applyUpdate(changes, avant);
+    o.params = false;
+    toast("Paramètres enregistrés dans Notion.");
+  } catch (e) {
+    toast(e.message, "err");
+    if (e.code === "conflit" || e.code === "mise_en_forme") { o.saving = false; openProjet(o.id); return; }
+  } finally { o.saving = false; renderDrawer(); render(); }
+}
+
+/** Écrit dans Notion par la fonction projets, puis recompose la fiche et la carte. */
+async function applyUpdate(changes, avant) {
+  const o = S.open;
+  const r = await projetsApi.update(o.id, changes, avant && Object.keys(avant).length ? avant : undefined);
+  if (S.open !== o) return r;
+  o.p = r.projet; o.fetchedAt = r.fetchedAt; o.synchro = syncOf(r);
+  if (r.options) S.options = r.options;
+  if (S.items) { const i = S.items.findIndex((x) => x.id === o.id); if (i >= 0) { const { tachesListe, echanges, interlocuteurs, opportunitesListe, themesListe, timeline, contexte, ...card } = r.projet; S.items[i] = { ...S.items[i], ...card }; } }
+  return r;
+}
+
+setNoteSaver("projets", async (prop, value, before) => {
+  const o = S.open;
+  if (!o) return;
+  try {
+    await applyUpdate({ [prop]: value || null }, { [prop]: before });
+    o.savedNote = prop;
+    toast("Notes enregistrées dans Notion.");
+  } catch (e) {
+    if (e.code === "conflit" || e.code === "mise_en_forme") { toast(e.message, "err"); openProjet(o.id); return; }
+    throw e;
+  }
+  renderDrawer();
+});
+
+// ---------------- Timeline par initiative (lot 1 bis, POC) ----------------
+// Barres des initiatives (dates de la base Thèmes), tâches datées en losange, échanges en point, jalon,
+// trait rouge à aujourd'hui. Positions en pourcentage de la largeur : aucun défilement horizontal.
+
+const MOIS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+const TH_CL = { "Pas commencé": "th-pasc", "Préparation": "th-prep", "En cours": "th-encours", "Terminé": "th-fini" };
+const ymd = (d) => new Date(d.length === 10 ? d + "T12:00:00" : d);
+
+function timelineHTML(p) {
+  const ths = p.themesListe || [], tl = p.timeline || { actions: [], echanges: [] };
+  const today = new Date().toLocaleString("sv-SE", { timeZone: "Europe/Paris" }).slice(0, 10);
+  const dates = [...ths.flatMap((t) => [t.debut, t.fin]), p.dateJalon, today].filter(Boolean).map((x) => String(x).slice(0, 10)).sort();
+  const a = ymd(dates[0]), b = ymd(dates[dates.length - 1]);
+  const t0 = new Date(a.getFullYear(), a.getMonth(), 1), t1 = new Date(b.getFullYear(), b.getMonth() + 1, 1);
+  const span = t1 - t0;
+  const pos = (d) => { if (!d) return null; const x = (ymd(String(d).slice(0, 10)) - t0) / span * 100; return x < 0 || x > 100 ? null : Math.round(x * 100) / 100; };
+  const months = [];
+  for (let d = new Date(t0); d < t1; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) months.push(new Date(d));
+  const narrow = window.matchMedia("(max-width: 700px)").matches;
+  const every = months.length > (narrow ? 12 : 18) ? 3 : months.length > (narrow ? 5 : 9) ? 2 : 1;
+  const grid = months.map((m) => `<span class="tl-g" style="left:${pos(m.toISOString().slice(0, 10)) ?? 0}%"></span>`).join("");
+  const now = pos(today) != null ? `<span class="tl-today" style="left:${pos(today)}%" title="Aujourd'hui"></span>` : "";
+  const head = `<div class="tl-row tl-head"><div class="tl-lab"></div><div class="tl-track">${months.map((m, k) => k % every ? "" : `<span class="tl-m" style="left:${(m - t0) / span * 100}%">${MOIS[m.getMonth()]}${m.getMonth() === 0 ? " " + String(m.getFullYear()).slice(2) : ""}</span>`).join("")}</div></div>`;
+  const lane = (lab, sub, inner, attrs = "") => `<div class="tl-row"><div class="tl-lab" ${attrs}><b>${lab}</b>${sub ? `<small>${sub}</small>` : ""}</div><div class="tl-track">${grid}${now}${inner}</div></div>`;
+  const marks = (as, is) => as.filter((x) => pos(x.echeance) != null).map((x) => { const d = isDone(x), late = !d && x.echeance < today; return `<a class="tl-act ${d ? "done" : ""} ${late ? "late" : ""}" style="left:${pos(x.echeance)}%" href="#/todo/${x.id}" title="${esc(x.nom)} · ${esc(fd(x.echeance))}" aria-label="Tâche ${esc(x.nom)}, ${esc(fd(x.echeance))}"></a>`; }).join("")
+    + is.filter((i) => pos(i.date) != null).map((i) => `<a class="tl-int" style="left:${pos(i.date)}%" href="${esc(i.url)}" target="_blank" rel="noopener" title="${esc(i.titre)} · ${esc(fd(i.date))}" aria-label="Échange ${esc(i.titre)}, ${esc(fd(i.date))}"></a>`).join("");
+  const has = (x, id) => (x.themes || []).some((t) => String(t).replace(/-/g, "") === String(id).replace(/-/g, ""));
+  let rows = "";
+  if (p.dateJalon && pos(p.dateJalon) != null) rows += lane("Prochain jalon", esc(fd(p.dateJalon)), `<span class="tl-jal" style="left:${pos(p.dateJalon)}%" title="${esc(p.prochainJalon || "")}">${ic("flag", "ic-sm")}</span>`);
+  for (const t of ths.filter((x) => !S.thHide[x.id])) {
+    const ta = tl.actions.filter((x) => has(x, t.id)), ti = tl.echanges.filter((x) => has(x, t.id));
+    const open = ta.filter((x) => !isDone(x)).length;
+    const l = pos(t.debut) ?? (t.debut && t.debut < dates[0] ? 0 : null), r = pos(t.fin);
+    const bar = t.debut && t.fin && l != null && r != null ? `<span class="tl-bar ${TH_CL[t.etat] || ""}" style="left:${l}%;width:${Math.max(0.8, r - l)}%" title="${esc(t.nom)} · du ${esc(fd(t.debut))} au ${esc(fd(t.fin))}"></span>` : `<span class="tl-nodate">sans dates</span>`;
+    rows += lane(esc(t.nom), `${esc(t.etat || "État non renseigné")} · ${open} action${open > 1 ? "s" : ""} ouverte${open > 1 ? "s" : ""}`, bar + marks(ta, ti), `role="button" tabindex="0" data-thsel="${t.id}" aria-pressed="${S.thSel === t.id}"`);
+  }
+  const noA = tl.actions.filter((x) => !(x.themes || []).length && !isDone(x)), noI = tl.echanges.filter((x) => !(x.themes || []).length);
+  if (S.thNone) rows += lane("Sans initiative", `${noI.length} échanges · ${noA.length} actions`, marks(noA, noI));
+  const chips = ths.map((t) => `<button class="chip ${S.thHide[t.id] ? "" : "st-encours"}" data-thtog="${t.id}" aria-pressed="${!S.thHide[t.id]}">${esc(t.nom)}</button>`).join("");
+  const sel = ths.find((t) => t.id === S.thSel);
+  let detail = "";
+  if (sel) {
+    const ta = tl.actions.filter((x) => has(x, sel.id)).sort((x, y) => isDone(x) - isDone(y) || (x.echeance || "9").localeCompare(y.echeance || "9"));
+    const ti = tl.echanges.filter((x) => has(x, sel.id));
+    detail = `<div class="sec" style="margin-top:12px"><div class="card-h"><h3 style="margin:0;flex:1">${esc(sel.nom)}</h3><a class="btn sm" href="${esc(sel.url)}" target="_blank" rel="noopener">${ic("ext", "ic-sm")}Notion</a><button class="iconbtn" data-thsel="" aria-label="Fermer le détail">${ic("close", "ic-sm")}</button></div>
+      <p class="small muted">${sel.debut ? `Du ${esc(fd(sel.debut))} au ${esc(fd(sel.fin))}` : "Sans dates"} · ${ta.length} action${ta.length > 1 ? "s" : ""} · ${ti.length} échange${ti.length > 1 ? "s" : ""}</p>
+      <div class="pgrid"><div><h3>Actions</h3>${ta.length ? `<div class="list">${ta.map((x) => `<a class="row" href="#/todo/${x.id}"><div class="rm"><div class="rt ${isDone(x) ? "strike" : ""}">${esc(x.nom)}</div><div class="ameta">${etatChip(x.etat, isDone(x))}</div></div><div class="rr">${isDone(x) ? "" : due(x.echeance)}</div></a>`).join("")}</div>` : `<p class="empty">Aucune action.</p>`}</div>
+      <div><h3>Échanges</h3>${ti.length ? `<div class="list">${ti.map((i) => `<a class="row" href="${esc(i.url)}" target="_blank" rel="noopener"><div class="rm"><div class="rt">${esc(i.titre)}</div><div class="rs">${esc(fd(i.date))}</div></div>${ic("ext", "ic-sm")}</a>`).join("")}</div>` : `<p class="empty">Aucun échange rattaché à cette initiative.</p>`}</div></div></div>`;
+  }
+  return `<div class="bar" style="margin-bottom:8px"><span class="small muted" style="flex:1;min-width:160px">Touche une initiative pour la masquer ou l'afficher, son nom pour le détail.</span><label class="chk-l"><input type="checkbox" data-thnone="1" ${S.thNone ? "checked" : ""}> Sans initiative</label></div>
+    <div class="chips" style="margin-bottom:10px">${chips}</div>
+    <div class="tl">${head}${rows}</div>
+    <div class="clegend"><span><i style="background:var(--teal)"></i>En cours</span><span><i style="background:var(--teal-50);border:1px solid var(--teal)"></i>Préparation</span><span><i style="background:var(--surface);border:1.5px dashed var(--line-dashed)"></i>Pas commencé</span><span><i style="background:var(--line-strong)"></i>Terminé</span><span><i class="dia"></i>Tâche datée</span><span><i class="dot2"></i>Échange</span><span><i style="background:var(--alert);width:2px;border-radius:0"></i>Aujourd'hui</span></div>
+    ${tl.partiel ? `<p class="small muted">Tâches et échanges non lus : miroir indisponible.</p>` : ""}${detail}`;
 }
 
 // ---------------- Événements ----------------
@@ -249,7 +390,23 @@ export function bindProjetsDrawerEvents(root) {
     const b = e.target.closest("[data-pstate]");
     if (b) { setState(b.dataset.pstate); return; }
     const c = e.target.closest("[data-pdone]");
-    if (c) { e.preventDefault(); toggleTask(c.dataset.pdone); }
+    if (c) { e.preventDefault(); toggleTask(c.dataset.pdone); return; }
+    const pp = e.target.closest("[data-pparam]");
+    if (pp && S.open) { S.open.params = pp.dataset.pparam === "1" && !S.open.params; renderDrawer(); if (S.open.params) setTimeout(() => $("#pp-n")?.focus(), 30); return; }
+    if (e.target.closest("[data-psave]")) { saveParams(); return; }
+    const tg = e.target.closest("[data-thtog]");
+    if (tg) { S.thHide[tg.dataset.thtog] = !S.thHide[tg.dataset.thtog]; renderDrawer(); return; }
+    const ts = e.target.closest("[data-thsel]");
+    if (ts) { S.thSel = ts.dataset.thsel && S.thSel !== ts.dataset.thsel ? ts.dataset.thsel : null; renderDrawer(); }
+  });
+  root.addEventListener("change", (e) => {
+    if (!ownsDrawer("projets")) return;
+    if (e.target.dataset?.thnone) { S.thNone = e.target.checked; renderDrawer(); }
+  });
+  root.addEventListener("keydown", (e) => {
+    if (!ownsDrawer("projets")) return;
+    const ts = e.target.closest?.("[data-thsel]");
+    if (ts && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); ts.click(); }
   });
 }
 

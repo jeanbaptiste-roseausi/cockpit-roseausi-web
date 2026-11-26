@@ -1,11 +1,11 @@
 // Vue « Contacts » : liste des contacts actifs et fiche modifiable.
 // Chaque vue du cockpit expose la même interface : { id, label, icon, render(), open(id) }.
 import { contactsApi, todoApi, projetsIndex } from "./api.js";
-import { $, esc, ic, av, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, ficheTabs, parcChip, taSpan, syncOf, syncSpan, staleBanner } from "./ui.js";
+import { $, esc, ic, av, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, ficheTabs, parcChip, taSpan, syncOf, syncSpan, staleBanner, natureChip, setNoteSaver , swapHTML } from "./ui.js";
 
 const S = {
   items: null, schema: null, loading: false, error: null, fetchedAt: null, synchro: null,
-  f: { q: "", type: "tous", parcours: "", mode: "liste", sort: "" },
+  f: { q: "", type: "tous", parcours: "", mode: "liste", sort: "liens" },
   open: null, // fiche ouverte : { id, contact, values, saving: Set, sec }
 };
 
@@ -47,6 +47,9 @@ async function load(force = false) {
 }
 
 const orgName = (id) => S.items?.find((c) => c.id === id)?.nom;
+const NOTES_CONTACT = "👦👩‍🦰Notes contacts", NOTES_ENTREPRISE = "Notes entreprise";
+/** Dernier échange d'une ligne : direct au Journal de bord (lot 1 bis), sinon la propriété « Dernier échange ». */
+const lastEx = (c) => c.dernierEchangeDirect?.date || c.dernierEchange || "";
 const subOf = (c) => [c.position, ...(c.rattacheA || []).map(orgName).filter(Boolean)].filter(Boolean).join(" · ")
   || (c.typeOrg || []).join(", ");
 
@@ -57,7 +60,9 @@ function filtered() {
   if (f.parcours) list = list.filter((c) => (f.parcours === "__none" ? !c.parcours : c.parcours === f.parcours));
   if (q) list = list.filter((c) => nrm([c.nom, c.position, c.prochaineAction, subOf(c), ...(c.typeOrg || [])].join(" ")).includes(q));
   if (f.sort === "nom") list = list.slice().sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
-  else if (f.sort === "recent") list = list.slice().sort((a, b) => (b.dernierEchange || "").localeCompare(a.dernierEchange || "") || a.nom.localeCompare(b.nom, "fr"));
+  else if (f.sort === "recent") list = list.slice().sort((a, b) => lastEx(b).localeCompare(lastEx(a)) || a.nom.localeCompare(b.nom, "fr"));
+  // Tri par liens (POC) : a recommandé × 3, recommandé par × 2, pistes, membres, échanges ; score calculé par la fonction.
+  else if (f.sort === "liens") list = list.slice().sort((a, b) => (b.scoreLiens ?? 0) - (a.scoreLiens ?? 0) || a.nom.localeCompare(b.nom, "fr"));
   return list;
 }
 
@@ -83,7 +88,7 @@ function render() {
   else {
     const list = filtered();
     const srt = (v, lab) => `<button class="lnk ${f.sort === v ? "on" : ""}" data-csort="${v}">${lab}</button>`;
-    body = `${staleBanner(S.synchro)}<p class="small muted" style="margin:-4px 0 10px">${list.length} fiche${list.length > 1 ? "s" : ""} sur ${S.items.length} contacts actifs${S.synchro ? `, ${syncSpan(S.synchro)}` : ""}${S.loading ? ", mise à jour…" : ""}. Trier par ${srt("", "ordre Notion")}, ${srt("recent", "dernier échange")}, ${srt("nom", "nom")}.</p>
+    body = `${staleBanner(S.synchro)}<p class="small muted" style="margin:-4px 0 10px">${list.length} fiche${list.length > 1 ? "s" : ""} sur ${S.items.length} contacts actifs${S.synchro ? `, ${syncSpan(S.synchro)}` : ""}${S.loading ? ", mise à jour…" : ""}. Trier par ${srt("liens", "liens")}, ${srt("recent", "dernier échange")}, ${srt("nom", "nom")}, ${srt("", "ordre Notion")}.</p>
       ${!list.length ? `<p class="empty">Aucun contact pour ces filtres.</p>` : f.mode === "cartes" ? `<div class="cgrid">${list.slice(0, 400).map(card).join("")}</div>` : `<div class="card"><div class="list">${list.slice(0, 400).map(row).join("")}</div></div>`}
       ${list.length > 400 ? `<p class="small muted" style="margin-top:8px">Seules les 400 premières fiches sont affichées, affine le filtre.</p>` : ""}`;
   }
@@ -93,16 +98,26 @@ function render() {
   if (active === "cf-q") { const i = $("#cf-q", host); i.focus(); try { i.setSelectionRange(pos, pos); } catch { /* */ } }
 }
 
+// Ligne (POC, contactRow) : parcours, actions ouvertes, mail, date du dernier échange direct.
+// Les pistes en cours s'ajouteront avec les pistes (lot 2).
+const actChip = (c) => c.tachesOuvertes ? `<span class="chip">${c.tachesOuvertes} action${c.tachesOuvertes > 1 ? "s" : ""}</span>` : "";
+const mailChip = (c) => c.email ? `<span class="chip pl" title="Mail">${ic("mail", "ic-sm")}${esc(c.email)}</span>` : "";
+function exSpan(c) {
+  if (c.dernierEchangeDirect) return `<span class="due" title="Dernier échange direct au Journal de bord : ${esc(c.dernierEchangeDirect.titre)}">${esc(fd(c.dernierEchangeDirect.date))}</span>`;
+  if (c.dernierEchange) return `<span class="small muted" title="Propriété « Dernier échange » de la fiche (aucun échange relié au Journal de bord)">Échange ${esc(fd(c.dernierEchange))}</span>`;
+  return `<span class="small muted">Aucun échange</span>`;
+}
 function row(c) {
   return `<a class="row" href="#/contacts/${c.id}">${av(c)}
     <div class="rm"><div class="rt">${esc(c.nom)}</div><div class="rs">${esc(subOf(c)) || "&nbsp;"}</div>
-      ${c.prochaineAction ? `<div class="rs clamp2">${ic("arrow", "ic-sm")} ${esc(c.prochaineAction)}</div>` : ""}</div>
-    <div class="rr">${parcChip(c.parcours)}${c.prio === "P1" ? chip("P1", "red") : c.prio ? chip(c.prio) : ""}${due(c.dateProchaineAction)}${c.dernierEchange ? `<span class="small muted" title="Dernier échange">Échange ${esc(fd(c.dernierEchange))}</span>` : ""}</div></a>`;
+      ${((x) => x ? `<div class="chips" style="margin-top:4px">${x}</div>` : "")(`${parcChip(c.parcours)}${natureChip(c.nature)}${actChip(c)}${c.prio === "P1" ? chip("P1", "red") : c.prio ? chip(c.prio) : ""}${mailChip(c)}`)}
+      ${c.prochaineAction ? `<div class="rs clamp2">${ic("arrow", "ic-sm")} ${esc(c.prochaineAction)} ${due(c.dateProchaineAction)}</div>` : ""}</div>
+    <div class="rr">${exSpan(c)}</div></a>`;
 }
 
 function card(c) {
   return `<a class="ccard" href="#/contacts/${c.id}">${av(c)}<div class="cm"><div class="cn">${esc(c.nom)}</div><div class="cs">${esc(subOf(c)) || "&nbsp;"}</div>
-    <div class="chips">${parcChip(c.parcours)}${c.prio === "P1" ? chip("P1", "red") : c.prio ? chip(c.prio) : ""}${c.qualif ? chip(c.qualif, colorOf("Qualif Prospect", c.qualif)) : ""}</div>
+    <div class="chips">${parcChip(c.parcours)}${natureChip(c.nature)}${actChip(c)}${c.prio === "P1" ? chip("P1", "red") : c.prio ? chip(c.prio) : ""}${c.qualif ? chip(c.qualif, colorOf("Qualif Prospect", c.qualif)) : ""}</div>
     ${c.prochaineAction || c.dateProchaineAction ? `<div class="cs clamp2" style="margin-top:6px">${ic("arrow", "ic-sm")} ${esc(c.prochaineAction || "Prochaine action")} ${due(c.dateProchaineAction)}</div>` : ""}</div></a>`;
 }
 
@@ -141,7 +156,7 @@ function renderDrawer() {
   const c = o.contact;
   ficheTop({ kind: c?.type === "Organisation" ? "Organisation" : c?.type === "Réseau" ? "Réseau" : "Contact", url: c?.url || null, side: true });
   renderSide("contacts", sideHTML({
-    notes: [{ label: "Notes contacts", text: c?.notesContact }, { label: "Notes entreprise", text: c?.notesEntreprise }],
+    notes: notesOf(c, o),
     notesMissing: !c || c.partial ? "Chargement des notes…" : "",
     ordre: c && !c.partial ? { etat: c.ordreAgent, mission: c.ordreMission } : null,
   }));
@@ -160,12 +175,12 @@ function renderDrawer() {
   const openN = Array.isArray(o.tasks) ? o.tasks.filter((x) => !isDone(x)).length : null;
   const cur = SECS[o.sec] ? o.sec : "synthese";
   const body = { synthese: () => synthese(o), taches: () => tasksSection(o), fiche: () => o.values ? form(o) : `<p class="empty">Chargement des champs…</p>` }[cur]();
-  drawerHost.innerHTML = `
+  swapHTML(drawerHost, `
     <div class="dh"><div class="dact">${acts}</div>${av(c, "lg")}<div style="flex:1;min-width:0"><h1>${esc(c.nom)}</h1><div class="sub">${esc(sub)}</div>
-      <div class="chips" style="margin-top:8px">${c.type ? `<span class="chip">${esc(c.type)}</span>` : ""}${chip(c.qualif, colorOf("Qualif Prospect", c.qualif))}${c.prio ? chip(c.prio, colorOf("Prio", c.prio)) : ""}</div></div></div>
+      <div class="chips" style="margin-top:8px">${c.type ? `<span class="chip">${esc(c.type)}</span>` : ""}${natureChip(c.nature)}${chip(c.qualif, colorOf("Qualif Prospect", c.qualif))}${c.prio ? chip(c.prio, colorOf("Prio", c.prio)) : ""}</div></div></div>
     ${o.error ? `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(o.error)}</span></div>` : ""}
     ${ficheTabs([["synthese", SECS.synthese], ["taches", SECS.taches, openN], ["fiche", SECS.fiche]], cur, "data-csec")}
-    <section class="cbody" aria-label="${SECS[cur]}">${body}</section>`;
+    <section class="cbody" aria-label="${SECS[cur]}">${body}</section>`);
 }
 
 function synthese(o) {
@@ -173,17 +188,28 @@ function synthese(o) {
   const n = (r) => r ? `${r.n}${r.more ? "+" : ""}` : "0";
   const orgs = (c.rattacheA || []).map((id) => ({ id, nom: orgName(id) })).filter((x) => x.nom);
   const open = Array.isArray(o.tasks) ? o.tasks.filter((x) => !isDone(x)) : null;
+  // Lot 1 bis (POC) : dernier échange direct lu au Journal, prochaine étape (première tâche ouverte, sinon la
+  // prochaine action de la fiche), recommandeurs ou rattachements nommés. Prochaine étape des pistes : lot 2.
+  const next = open && open.length ? open.slice().sort((a, b) => (a.echeance || "9").localeCompare(b.echeance || "9"))[0] : null;
+  const ld = c.dernierEchangeDirect;
+  const names = (list) => list.map((x) => x.nom ? `<a href="#/contacts/${x.id}">${esc(x.nom)}</a>` : `<span class="muted">fiche non lue</span>`).join(", ");
+  const people = c.type === "Personne"
+    ? `<div><span>Recommandé par</span><b>${c.partial || !c.recommandeParNoms ? "…" : c.recommandeParNoms.length ? names(c.recommandeParNoms) : "Contact direct"}</b></div>`
+    : `<div><span>Rattachements</span><b>${c.partial ? "…" : (c.rattacheANoms || []).length ? names(c.rattacheANoms) : orgs.length ? orgs.map((x) => esc(x.nom)).join(", ") : "Aucun"}</b></div>`;
   return `<div class="sfacts">
-      <div><span>Statut</span><b>${c.parcours ? esc(c.parcours) : "Non renseigné"}</b></div>
-      <div><span>Dernier échange</span><b>${c.dernierEchange ? esc(fd(c.dernierEchange)) : "Aucun"}</b></div>
-      <div><span>Prochaine action</span><b>${c.prochaineAction ? esc(c.prochaineAction) : "Rien de prévu"}</b>${c.dateProchaineAction ? `<small>${due(c.dateProchaineAction)}</small>` : ""}</div>
+      ${c.type === "Personne" || !c.type ? `<div><span>Statut</span><b>${c.parcours ? esc(c.parcours) : "Non renseigné"}</b></div>` : ""}
+      ${c.nature == null && !c.partial ? `<div><span>Dernier échange</span><b>${c.dernierEchange ? esc(fd(c.dernierEchange)) : "Aucun"}</b><small>Propriété de la fiche (journal non lu)</small></div>` : `<div><span>Dernier échange direct</span><b>${ld ? esc(fd(ld.date)) : c.partial ? "…" : "Aucun au Journal de bord"}</b>${ld ? `<small><a href="https://www.notion.so/${esc(String(ld.id).replace(/-/g, ""))}" target="_blank" rel="noopener">${esc(ld.titre)}</a></small>` : c.dernierEchange ? `<small>Propriété Dernier échange : ${esc(fd(c.dernierEchange))}</small>` : ""}</div>`}
+      <div><span>Prochaine étape</span>${next ? `<b><a href="#/todo/${next.id}">${esc(next.nom)}</a></b>${next.echeance ? `<small>${due(next.echeance)}</small>` : ""}`
+        : c.prochaineAction ? `<b>${esc(c.prochaineAction)}</b><small>Prochaine action de la fiche ${due(c.dateProchaineAction)}</small>` : `<b>${open === null ? "…" : "Rien de prévu"}</b>`}</div>
+      ${people}
       <div><span>Liens dans Notion</span><b class="small">${n(rel.opportunites)} opportunité(s) · ${n(rel.todo)} tâche(s) · ${n(rel.journal)} échange(s)</b>${c.partial ? "" : `<small>Recommandé par ${n(rel.recommandePar)} · a recommandé ${n(rel.aRecommande)}</small>`}</div>
     </div>
     ${orgs.length ? `<h3 class="sh">Rattaché à</h3><div class="chips">${orgs.map((x) => `<a class="chip" href="#/contacts/${x.id}">${esc(x.nom)}</a>`).join("")}</div>` : ""}
     <h3 class="sh">À faire ${open ? `<button class="lnk" data-csec="taches">${open.length}</button>` : ""}</h3>
     ${open === null ? `<p class="empty">Chargement des tâches…</p>` : !Array.isArray(o.tasks) ? `<p class="empty">Tâches indisponibles pour l'instant.</p>` : open.length ? `<div class="list">${open.slice(0, 3).map(taskRow).join("")}</div>${open.length > 3 ? `<p class="small muted"><button class="lnk" data-csec="taches">Voir les ${open.length} tâches ouvertes</button></p>` : ""}` : `<p class="empty">Aucune tâche ouverte.</p>`}
     ${c.syntheseAgent ? `<h3 class="sh">Synthèse agent</h3><p class="notes">${esc(c.syntheseAgent)}</p>` : ""}
-    ${c.modifie ? `<p class="small muted" style="margin-top:14px">Modifié dans Notion le ${esc(new Date(c.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}. Les notes se modifient dans Notion.</p>` : ""}`;
+    ${c.modifie ? `<p class="small muted" style="margin-top:14px">Modifié dans Notion le ${esc(new Date(c.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}. Les notes se modifient dans le panneau Mes notes.</p>` : ""}
+    ${c.nature ? `<p class="small muted">Nature calculée par le cockpit : client ou partenaire si le contact est relié par une tâche à une mission en cours ou terminée, réseau s'il a recommandé quelqu'un ou s'il est hors parcours, prospect sinon. Les pistes gagnées compteront au lot 2.</p>` : ""}`;
 }
 
 const taskRow = (x) => `<a class="row" href="#/todo/${x.id}"><div class="rm"><div class="rt ${isDone(x) ? "strike" : ""}">${esc(x.nom)}</div>
@@ -204,6 +230,44 @@ function tasksSection(o) {
     ${pj.length ? `<div class="chips" style="margin-bottom:8px">${pj.map((p) => `<a class="chip pj" href="#/projets/${p.id}">${ic("folder", "ic-sm")}${esc(p.nom)}</a>`).join("")}</div>` : ""}
     ${open.length ? `<div class="list">${open.map(row).join("")}</div>` : `<p class="empty">Aucune tâche ouverte.</p>`}
     ${done.length ? `<details class="more"><summary>${done.length} terminée${done.length > 1 ? "s" : ""} ou annulée${done.length > 1 ? "s" : ""}</summary><div class="list">${done.map(row).join("")}</div></details>` : ""}`;
+}
+
+/** Notes du panneau : Notes contacts (personne) ou Notes entreprise (organisation, réseau), modifiables si sans mise en forme. */
+function notesOf(c, o) {
+  if (!c) return [];
+  const m = c.notesModifiables || {};
+  const mine = c.type === "Personne" ? NOTES_CONTACT : NOTES_ENTREPRISE;
+  const other = mine === NOTES_CONTACT ? NOTES_ENTREPRISE : NOTES_CONTACT;
+  const text = { [NOTES_CONTACT]: c.notesContact, [NOTES_ENTREPRISE]: c.notesEntreprise };
+  const lab = { [NOTES_CONTACT]: "Notes contacts", [NOTES_ENTREPRISE]: "Notes entreprise" };
+  const editable = (p) => !c.partial && o.values && m[p] === true && S.schema?.editable?.[p];
+  const one = (p) => ({ label: lab[p], text: text[p], prop: p, editable: editable(p), locked: !c.partial && m[p] === false, saved: o.savedNote === p });
+  const out = [one(mine)];
+  if (text[other]) out.push(one(other));
+  return out;
+}
+
+setNoteSaver("contacts", async (prop, value, before) => {
+  const o = S.open;
+  if (!o) return;
+  try {
+    const r = await contactsApi.update(o.id, { [prop]: value || null }, { [prop]: before });
+    if (S.open !== o) return;
+    o.contact = r.contact; o.values = r.values; o.savedNote = prop;
+    syncItem(r.contact);
+    toast("Notes enregistrées dans Notion.");
+  } catch (e) {
+    if (e.code === "conflit" || e.code === "mise_en_forme") { toast(e.message, "err"); openContact(o.id); return; }
+    throw e;
+  }
+  renderDrawer();
+});
+
+/** Répercute une fiche relue dans la liste, sans tout recharger. */
+function syncItem(contact) {
+  if (!S.items) return;
+  const i = S.items.findIndex((c) => c.id === contact.id);
+  if (i >= 0) S.items[i] = { ...S.items[i], ...contact, partial: undefined };
 }
 
 /** Contacts actifs (chargés une fois), pour les listes de choix de la fiche TO DO. */
@@ -251,12 +315,7 @@ export async function saveField(el) {
     const r = await contactsApi.update(o.id, { [prop]: val || null });
     o.contact = r.contact; o.values = r.values;
     // Répercute dans la liste sans tout recharger.
-    if (S.items) {
-      const i = S.items.findIndex((c) => c.id === o.id);
-      const { id, nom, type, position, parcours, prio, qualif, prochaineAction, dateProchaineAction, dernierEchange, typeOrg, rattacheA, modifie } = r.contact;
-      const item = { id, nom, type, position, parcours, prio, qualif, prochaineAction, dateProchaineAction, dernierEchange, typeOrg, rattacheA, modifie };
-      if (i >= 0) S.items[i] = item;
-    }
+    syncItem(r.contact);
     toast(`${LABEL[prop] || prop} enregistré dans Notion.`);
   } catch (e) {
     toast(e.message, "err");

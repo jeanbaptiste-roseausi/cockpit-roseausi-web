@@ -2,10 +2,12 @@
 // changement d'état en un clic, création de tâche.
 import { todoApi } from "./api.js";
 import { contactIndex } from "./contacts.js";
-import { $, esc, ic, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, etatLabel, isDone, ficheTop, renderSide, sideHTML, ficheTabs, taSpan, syncOf, syncSpan, staleBanner } from "./ui.js";
+import { $, esc, ic, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, etatLabel, isDone, ficheTop, renderSide, sideHTML, ficheTabs, taSpan, syncOf, syncSpan, staleBanner, setNoteSaver , swapHTML } from "./ui.js";
 
 const PROSPECTION_PROJECT = "3e6a08ac559780ccb74ce21b2d7e2bbb"; // projet « Prospection » (filtre du POC)
 const CONTACTS_REL = "👱‍♀️ Contacts";
+const THEME_REL = "Thème";
+const TEXTES = ["Récap", "Mes notes"]; // textes longs : envoyés avec la valeur affichée (contrôle de conflit)
 
 const S = {
   items: null, done: null, schema: null, loading: false, error: null, fetchedAt: null, synchro: null,
@@ -67,6 +69,11 @@ const projets = () => S.schema?.projets || [];
 const projById = (id) => projets().find((p) => nid(p.id) === nid(id));
 const projChip = (id) => { const p = projById(id); return p ? `<span class="chip pj">${ic("folder", "ic-sm")}${esc(p.nom)}</span>` : ""; };
 const prioChip = (t) => t.prio === "P1" && !isDone(t) ? chip("P1", "red") : t.prio && !isDone(t) ? chip(t.prio) : "";
+// Initiatives (base Thèmes, lue en direct par la fonction todo) : pastille sur chaque ligne (lot 1 bis).
+const initiatives = () => S.schema?.initiatives || [];
+const iniById = (id) => initiatives().find((x) => nid(x.id) === nid(id));
+const iniChip = (id) => { const t = iniById(id); return t ? `<span class="chip ini" title="Initiative">${ic("layers", "ic-sm")}${esc(t.nom)}</span>` : ""; };
+const contactName = (id) => contactsList.sync().find((c) => nid(c.id) === nid(id))?.nom;
 
 // ---------------- Liste ----------------
 
@@ -80,7 +87,8 @@ function filtered() {
   if (f.v === "prospection") list = list.filter((t) => t.pistes > 0 || t.projets.some((p) => nid(p) === PROSPECTION_PROJECT));
   if (f.proj) list = list.filter((t) => t.projets.some((p) => nid(p) === nid(f.proj)));
   const q = nrm(f.q.trim());
-  if (q) list = list.filter((t) => nrm([t.nom, t.typeAction, ...t.projets.map((p) => projById(p)?.nom)].join(" ")).includes(q));
+  // Recherche (lot 1 bis, POC) : intitulé, type, projet, initiative, récap, synthèse agent, Mes notes, noms des contacts.
+  if (q) list = list.filter((t) => nrm([t.nom, t.typeAction, t.texte, ...t.projets.map((p) => projById(p)?.nom), ...(t.themes || []).map((x) => iniById(x)?.nom), ...(t.contacts || []).map(contactName)].join(" ")).includes(q));
   if (f.v !== "faites") list.sort((a, b) => (a.echeance || "9").localeCompare(b.echeance || "9") || (a.prio || "P9").localeCompare(b.prio || "P9"));
   return list;
 }
@@ -97,7 +105,7 @@ function render() {
       <label class="sr" for="tf-p">Projet</label>
       <select class="sel" id="tf-p"><option value="">Tous les projets</option>${projOpts.map((p) => `<option value="${p.id}" ${f.proj === p.id ? "selected" : ""}>${esc(p.nom)}</option>`).join("")}</select>
       <label class="sr" for="tf-q">Filtrer</label>
-      <input class="inp grow" id="tf-q" type="search" placeholder="Intitulé, projet, type…" value="${esc(f.q)}" autocomplete="off">
+      <input class="inp grow" id="tf-q" type="search" placeholder="Intitulé, récap, notes, contact…" value="${esc(f.q)}" autocomplete="off">
       <div class="seg" role="group" aria-label="Affichage">${mseg("liste", ic("list", "ic-sm") + " Liste")}${mseg("kanban", ic("board", "ic-sm") + " Kanban")}</div>
       <a class="btn sm pri" href="#/todo/new">${ic("plus", "ic-sm")}Tâche</a>
     </div>`;
@@ -127,7 +135,7 @@ function row(t) {
   return `<div class="arow ${d ? "done" : ""}">
     <button class="chk ${d ? "done" : ""}" data-tdone="${t.id}" aria-label="${d ? "Rouvrir la tâche" : "Marquer comme terminée"}">${d ? ic("check", "ic-sm") : ""}</button>
     <a class="am" href="#/todo/${t.id}"><div class="an">${esc(t.nom)}</div>
-      <div class="ameta">${prioChip(t)}${etatChip(t.etat)}${t.projets.slice(0, 1).map(projChip).join("")}${taSpan(t.typeAction)}</div></a>
+      <div class="ameta">${prioChip(t)}${etatChip(t.etat)}${t.projets.slice(0, 1).map(projChip).join("")}${(t.themes || []).slice(0, 1).map(iniChip).join("")}${taSpan(t.typeAction)}</div></a>
     ${d ? "" : due(t.echeance)}</div>`;
 }
 
@@ -143,20 +151,20 @@ function kanban(list) {
     <div class="board">${[...cols, ...extra].map((e) => { const it = list.filter((t) => t.etat === e); return `<section class="col" data-drop="${esc(e)}"><div class="col-h">${esc(etatLabel(e))}<span class="n">${it.length}</span></div>${it.map(kcard).join("") || `<p class="small muted" style="padding:6px">Aucune tâche</p>`}</section>`; }).join("")}</div>`;
 }
 const kcard = (t) => `<a class="pcard acard" href="#/todo/${t.id}" draggable="true" data-drag="${t.id}"><div class="an">${esc(t.nom)}</div>
-  <div class="chips">${prioChip(t)}${t.projets.slice(0, 1).map(projChip).join("")}</div>
+  <div class="chips">${prioChip(t)}${t.projets.slice(0, 1).map(projChip).join("")}${(t.themes || []).slice(0, 1).map(iniChip).join("")}</div>
   <div class="acard-f">${due(t.echeance)}${taSpan(t.typeAction)}</div></a>`;
 
 // ---------------- Écritures ----------------
 
 function applyTask(task) {
-  const { id, nom, etat, prio, echeance, typeAction, bloc, projets: pr, contacts, pistes, creeParAgent, modifie } = task;
-  const item = { id, nom, etat, prio, echeance, typeAction, bloc, projets: pr, contacts, pistes, creeParAgent, modifie };
+  const { id, nom, etat, prio, echeance, typeAction, bloc, projets: pr, contacts, pistes, themes, blocDeduit, texte, creeParAgent, modifie } = task;
+  const item = { id, nom, etat, prio, echeance, typeAction, bloc, projets: pr, contacts, pistes, themes, blocDeduit, texte, creeParAgent, modifie };
   for (const arr of [S.items, S.done]) if (arr) { const i = arr.findIndex((x) => x.id === id); if (i >= 0) arr[i] = item; }
   if (S.items && !S.items.some((x) => x.id === id) && !isDone(item)) S.items.push(item);
 }
 
-async function update(id, changes, okMsg) {
-  const r = await todoApi.update(id, changes);
+async function update(id, changes, okMsg, avant) {
+  const r = await todoApi.update(id, changes, avant);
   applyTask(r.task);
   if (S.open?.id === id) { S.open.task = r.task; S.open.values = r.values; }
   if (isDone(r.task)) S.justDone.add(id);
@@ -192,14 +200,14 @@ async function openTask(id) {
   contactsList().then(() => renderDrawer()); // noms et liste de choix des contacts
 }
 
-const FIELD_ORDER = ["Nom", "État", "Échéance", "Prio", "Type d'action", "Bloc"];
+const FIELD_ORDER = ["Nom", "Récap", "État", "Échéance", "Prio", "Type d'action", "Bloc", "Durée estimée (min)"];
 const LABEL = { Nom: "Intitulé", Prio: "Priorité" };
 
 let contactsCache = [];
 async function contactsList() { try { contactsCache = await contactIndex(); } catch { /* */ } return contactsCache; }
 contactsList.sync = () => contactsCache;
 
-const SECS = { synthese: "Synthèse", modifier: "Modifier", liens: "Projet et contacts" };
+const SECS = { synthese: "Synthèse", modifier: "Modifier", liens: "Projet et initiative" };
 
 function renderDrawer() {
   const o = S.open;
@@ -208,7 +216,7 @@ function renderDrawer() {
   ficheTop({ kind: o.isNew ? "Nouvelle tâche" : "Tâche", url: t?.url || null, side: !o.isNew });
   if (o.isNew) { drawerHost.innerHTML = newForm(o); return; }
   renderSide("todo", sideHTML({
-    notes: [{ label: "Mes notes", text: t?.mesNotes }],
+    notes: [{ label: "Mes notes", text: t?.mesNotes, prop: "Mes notes", editable: !!(t && !t.partial && o.values && t.textesModifiables?.["Mes notes"] && S.schema?.editable?.["Mes notes"]), locked: t?.textesModifiables?.["Mes notes"] === false, saved: o.savedNote === "Mes notes" }],
     notesMissing: !t || t.partial ? "Chargement des notes…" : "",
     ordre: t && !t.partial ? { etat: t.ordreAgent, mission: t.ordreMission } : null,
   }));
@@ -225,11 +233,11 @@ function renderDrawer() {
     modifier: () => `<h3 class="sh" style="margin-top:0">État</h3>
       <div class="statusbar" role="group" aria-label="Changer l'état">${states.map((s) => `<button class="${s === t.etat ? "on" : ""}" data-tstate="${esc(s)}" ${s === t.etat || o.saving.has("État") ? "disabled" : ""} aria-pressed="${s === t.etat}">${esc(etatLabel(s))}</button>`).join("")}</div>
       <h3 class="sh">Champs</h3>${o.values ? form(o) : `<p class="empty">Chargement des champs…</p>`}
-      <p class="small muted" style="margin-top:10px">Récap et notes se modifient dans Notion.</p>`,
-    liens: () => o.values ? links(o, nameOfProj, nameOfContact) : `<p class="empty">Chargement…</p>`,
+      <p class="small muted" style="margin-top:10px">Chaque champ est enregistré dans Notion en le quittant. Mes notes se modifient dans le panneau de droite.${t.textesModifiables && !t.textesModifiables["Récap"] ? " Le récap a une mise en forme dans Notion (gras, lien, mention…) : il se modifie dans Notion pour ne pas la perdre." : ""}</p>`,
+    liens: () => o.values ? iniSelect(o, "tl-th") + links(o, nameOfProj, nameOfContact) : `<p class="empty">Chargement…</p>`,
   }[cur]();
 
-  drawerHost.innerHTML = `
+  swapHTML(drawerHost, `
     <div class="dh"><div class="dact">
       ${t.etat === "Annulé" ? `<button class="btn sm pri" data-tstate="A faire">${ic("refresh", "ic-sm")}Rétablir</button>`
         : d ? `<button class="btn sm" data-tstate="A faire">${ic("refresh", "ic-sm")}Rouvrir</button>`
@@ -239,7 +247,7 @@ function renderDrawer() {
       <div class="chips" style="margin-top:8px">${etatChip(t.etat, true)}${t.prio ? chip(t.prio, t.prio === "P1" ? "red" : "") : ""}${t.typeAction ? `<span class="chip">${taSpan(t.typeAction)}</span>` : ""}${t.projets.map((p) => `<a class="chip pj" href="#/projets/${p}">${ic("folder", "ic-sm")}${esc(nameOfProj(p))}</a>`).join("")}${t.creeParAgent ? `<span class="chip dash">Créée par l'agent</span>` : ""}</div></div></div>
     ${o.error ? `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(o.error)}</span></div>` : ""}
     ${ficheTabs([["synthese", SECS.synthese], ["modifier", SECS.modifier], ["liens", SECS.liens, t.projets.length + t.contacts.length]], cur, "data-tsec")}
-    <section class="cbody" aria-label="${SECS[cur]}">${body}</section>`;
+    <section class="cbody" aria-label="${SECS[cur]}">${body}</section>`);
 }
 
 function synthese(o, nameOfProj) {
@@ -248,16 +256,47 @@ function synthese(o, nameOfProj) {
       <div><span>État</span><b>${esc(etatLabel(t.etat) || "Non renseigné")}</b>${t.prio ? `<small>${esc(t.prio)}</small>` : ""}</div>
       <div><span>Échéance</span><b>${t.echeance ? esc(fd(t.echeance)) : "Aucune"}</b>${t.echeance && !d ? `<small>${due(t.echeance)}</small>` : ""}
         ${o.values ? `<label class="echq"><span class="sr">Changer l'échéance</span><input type="date" data-tprop="Échéance" value="${esc(String(o.values["Échéance"] || "").slice(0, 10))}" ${busy ? "disabled" : ""}></label>` : ""}</div>
-      <div><span>Bloc</span><b>${t.bloc ? esc(t.bloc) : "Non renseigné"}</b></div>
+      <div><span>Bloc</span><b>${t.bloc ? esc(t.bloc) : t.blocDeduit ? `${esc(t.blocDeduit)} <span class="small muted">(déduit)</span>` : "Non renseigné"}</b>${!t.bloc && t.blocDeduit ? `<small>Déduit du type d'action et de l'état, rien n'est écrit dans Notion</small>` : ""}</div>
       <div><span>Durée estimée</span><b>${t.dureeMin != null ? `${t.dureeMin} min` : t.partial ? "…" : "Non renseignée"}</b>${t.typeAction ? `<small>${taSpan(t.typeAction)}</small>` : ""}</div>
       ${t.projets.map((p) => `<a class="sfact-link" href="#/projets/${p}"><span>Projet</span><b>${esc(nameOfProj(p))}</b><small>Ouvrir le projet ›</small></a>`).join("")}
       ${t.pistes ? `<div><span>Piste</span><b>${t.pistes} piste${t.pistes > 1 ? "s" : ""} liée${t.pistes > 1 ? "s" : ""}</b><small>Fiche piste au lot 2</small></div>` : ""}
     </div>
+    ${o.values ? iniSelect(o, "ts-th") : ""}
     ${!t.projets.length && !t.pistes ? `<div class="banner dashed">${ic("alert", "ic-sm")}<span>Tâche rattachée à aucun projet ni piste.</span><button class="btn sm" data-tsec="liens">Rattacher</button></div>` : ""}
     ${t.recap ? `<h3 class="sh">Récap</h3><p class="notes">${esc(t.recap)}</p>` : ""}
     ${t.brouillon || t.lienSource ? `<div class="dact" style="margin:12px 0">${t.brouillon ? `<a class="btn sm pri" href="${esc(t.brouillon)}" target="_blank" rel="noopener">${ic("mail", "ic-sm")}Brouillon Gmail</a>` : ""}${t.lienSource ? `<a class="btn sm" href="${esc(t.lienSource)}" target="_blank" rel="noopener">${ic("ext", "ic-sm")}Source</a>` : ""}</div>` : ""}
     ${t.syntheseAgent ? `<h3 class="sh">Synthèse agent</h3><p class="notes">${esc(t.syntheseAgent)}</p>` : ""}
-    ${t.modifie ? `<p class="small muted" style="margin-top:14px">Modifiée dans Notion le ${esc(new Date(t.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}. Récap et notes se modifient dans Notion.</p>` : ""}`;
+    ${t.modifie ? `<p class="small muted" style="margin-top:14px">Modifiée dans Notion le ${esc(new Date(t.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}. Le récap se modifie dans l'onglet Modifier, Mes notes dans le panneau de droite.</p>` : ""}`;
+}
+
+/**
+ * Choix de l'initiative (lot 1 bis, POC) : une seule par tâche, initiatives des projets de la tâche en tête.
+ * Choisir une initiative rattache aussi la tâche à son projet (fait par la fonction todo).
+ */
+function iniSelect(o, id) {
+  const t = o.task;
+  if (!S.schema?.editable?.[THEME_REL]) return "";
+  const busy = o.saving.has(THEME_REL);
+  const cur = (t.themes || [])[0] || "";
+  if ((t.themes || []).length > 1 || t.themesMore) {
+    return `<div class="thq"><span class="lb">Initiatives</span><div class="chips">${t.themes.map(iniChip).join("")}</div><span class="small muted">Plusieurs initiatives : à modifier dans Notion.</span></div>`;
+  }
+  if (S.schema.initiativesIndisponibles) return `<p class="small muted">Initiatives indisponibles pour l'instant (Notion n'a pas répondu).${cur ? " Cette tâche en a une." : ""}</p>`;
+  const linked = new Set(t.projets.map(nid));
+  const groups = new Map();
+  for (const x of initiatives()) {
+    const pid = (x.projets || [])[0];
+    const p = pid ? projById(pid) : null;
+    if (!p) continue;
+    if (x.etat === "Terminé" && nid(x.id) !== nid(cur)) continue;
+    if (!groups.has(p.id)) groups.set(p.id, { p, items: [] });
+    groups.get(p.id).items.push(x);
+  }
+  const order = [...groups.values()].sort((a, b) => (linked.has(nid(b.p.id)) - linked.has(nid(a.p.id))) || a.p.nom.localeCompare(b.p.nom, "fr"));
+  return `<div class="thq"><label for="${id}">Initiative</label><select class="sel" id="${id}" data-tini="1" ${busy ? "disabled" : ""}>
+    <option value="">Aucune initiative</option>${order.map((g) => `<optgroup label="${esc(g.p.nom)}">${g.items.map((x) => `<option value="${x.id}" ${nid(cur) === nid(x.id) ? "selected" : ""}>${esc(x.nom)}</option>`).join("")}</optgroup>`).join("")}
+    ${cur && !iniById(cur) ? `<option value="${esc(cur)}" selected>Initiative liée (hors liste)</option>` : ""}</select>
+    <span class="small muted">${busy ? "Enregistrement…" : "Choisir une initiative rattache aussi la tâche à son projet."}</span></div>`;
 }
 
 function links(o, nameOfProj, nameOfContact) {
@@ -289,8 +328,13 @@ function field(name, def, value, saving, attr, idp = "tx-") {
     const opts = def.options.includes(v) || !v ? def.options : [v, ...def.options];
     input = `<select ${attrs}>${def.type === "status" ? "" : `<option value="">Non renseigné</option>`}${opts.map((x) => `<option value="${esc(x)}" ${x === v ? "selected" : ""}>${esc(etatLabel(x))}</option>`).join("")}</select>`;
   } else if (def.type === "date") input = `<input type="date" ${attrs} value="${esc(String(v).slice(0, 10))}">`;
+  else if (def.type === "number") input = `<input type="number" min="0" step="5" inputmode="numeric" ${attrs} value="${esc(v)}">`;
+  else if (def.type === "rich_text") {
+    const locked = attr === "tprop" && S.open?.task?.textesModifiables && !S.open.task.textesModifiables[name];
+    input = locked ? `<p class="notes">${esc(v) || `<span class="muted">Vide</span>`}</p>` : `<textarea ${attrs} rows="4" maxlength="10000">${esc(v)}</textarea>`;
+  }
   else input = `<input type="text" ${attrs} value="${esc(v)}" autocomplete="off" ${def.type === "title" ? "required" : ""}>`;
-  return `<div class="fld ${def.type === "title" ? "wide" : ""}">${lab}${input}</div>`;
+  return `<div class="fld ${def.type === "title" || def.type === "rich_text" ? "wide" : ""}">${lab}${input}</div>`;
 }
 
 async function saveField(el) {
@@ -300,13 +344,30 @@ async function saveField(el) {
   const val = el.value.trim();
   if (String(o.values[prop] ?? "").slice(0, type === "date" ? 10 : undefined) === val) return;
   if (type === "title" && !val) { el.value = o.values[prop]; toast("L'intitulé ne peut pas être vide.", "err"); return; }
-  await saving(prop, () => update(o.id, { [prop]: val || null }, `${LABEL[prop] || prop} enregistré dans Notion.`));
+  const avant = TEXTES.includes(prop) ? { [prop]: o.values[prop] ?? "" } : undefined;
+  await saving(prop, () => update(o.id, { [prop]: val === "" ? null : type === "number" ? Number(val) : val }, `${LABEL[prop] || prop} enregistré dans Notion.`, avant));
 }
+
+setNoteSaver("todo", async (prop, value, before) => {
+  const o = S.open;
+  if (!o || o.isNew) return;
+  try {
+    await update(o.id, { [prop]: value || null }, "Notes enregistrées dans Notion.", { [prop]: before });
+    o.savedNote = prop;
+  } catch (e) {
+    if (e.code === "conflit" || e.code === "mise_en_forme") { toast(e.message, "err"); openTask(o.id); return; }
+    throw e;
+  }
+  renderDrawer(); render();
+});
 
 async function saving(prop, fn) {
   const o = S.open;
   o.saving.add(prop); renderDrawer();
-  try { await fn(); } catch (e) { toast(e.message, "err"); }
+  try { await fn(); } catch (e) {
+    toast(e.message, "err");
+    if (e.code === "conflit" || e.code === "mise_en_forme") { o.saving.delete(prop); openTask(o.id); return; }
+  }
   finally { o.saving.delete(prop); renderDrawer(); render(); }
 }
 
@@ -415,6 +476,7 @@ export function bindTodoDrawerEvents(root) {
     if (!ownsDrawer("todo") || !S.open) return;
     const el = e.target;
     if (el.dataset?.tprop) { saveField(el); return; }
+    if (el.dataset?.tini) { const v = el.value; saving(THEME_REL, () => update(S.open.id, { [THEME_REL]: { set: v ? [v] : [] } }, v ? "Initiative enregistrée dans Notion." : "Initiative retirée dans Notion.")); return; }
     if (el.dataset?.tadd === "Projets" && el.value) { const id = el.value; saving("Projets", () => update(S.open.id, { "Projets": { add: [id] } }, "Projet ajouté dans Notion.")); return; }
     if (el.id === "tl-c" && el.value.trim()) {
       const id = contactIdByName(el.value);

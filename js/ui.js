@@ -10,7 +10,10 @@ export const initials = (n) => {
   return ((w[0]?.[0] ?? "?") + (w.length > 1 ? w[w.length - 1][0] : (w[0]?.[1] ?? ""))).toUpperCase();
 };
 const KIND = { Personne: "p", Organisation: "org", "Réseau": "res" };
-export const av = (c, cl = "") => `<span class="av k-${KIND[c.type] ?? "p"} ${cl}" aria-hidden="true">${esc(initials(c.nom))}</span>`;
+// Nature calculée par la fonction contacts (lot 1 bis, règle du POC) : couleur d'avatar et pastille.
+export const NATURE = { client: "Client ou partenaire", reseau: "Réseau", prospect: "Prospect", org: "Organisation", res: "Réseau thématique" };
+export const av = (c, cl = "") => `<span class="av k-${c.nature && NATURE[c.nature] ? c.nature : KIND[c.type] ?? "p"} ${cl}" aria-hidden="true">${esc(initials(c.nom))}</span>`;
+export const natureChip = (n) => n && n !== "org" && n !== "res" && NATURE[n] ? `<span class="chip nat n-${n}" title="Nature calculée par le cockpit">${esc(NATURE[n])}</span>` : "";
 
 const today = () => new Date().toISOString().slice(0, 10);
 export function fd(iso) {
@@ -61,10 +64,56 @@ export function ficheTop({ kind, url = null, side = true }) {
   if (!side) $("#dr-side").innerHTML = "";
 }
 
-/** Écrit le panneau de droite (Mes notes au-dessus, agent en dessous), seulement pour la vue propriétaire. */
+/**
+ * Écrit le panneau de droite (Mes notes au-dessus, agent en dessous), seulement pour la vue propriétaire.
+ * Une note en cours de saisie (pas encore enregistrée) est gardée telle quelle, avec le curseur.
+ */
 export function renderSide(owner, html) {
   if (!ownsDrawer(owner)) return;
-  $("#dr-side").innerHTML = html;
+  const side = $("#dr-side");
+  const typing = [...side.querySelectorAll("textarea[data-note]")].filter((t) => t.value !== t.dataset.orig)
+    .map((t) => ({ prop: t.dataset.note, orig: t.dataset.orig, value: t.value }));
+  const act = document.activeElement?.dataset?.note ? { prop: document.activeElement.dataset.note, a: document.activeElement.selectionStart, b: document.activeElement.selectionEnd } : null;
+  side.innerHTML = html;
+  for (const t of side.querySelectorAll("textarea[data-note]")) {
+    const d = typing.find((x) => x.prop === t.dataset.note && x.orig === t.dataset.orig);
+    if (d) t.value = d.value;
+    if (act && act.prop === t.dataset.note) { t.focus({ preventScroll: true }); try { t.setSelectionRange(act.a, act.b); } catch { /* */ } }
+  }
+}
+
+/**
+ * Remplace le contenu d'une fiche sans perdre une saisie en cours : le champ qui a le focus (repéré par
+ * son id) retrouve la valeur tapée et le curseur si elle n'a pas encore été enregistrée.
+ */
+export function swapHTML(el, html) {
+  const a = document.activeElement;
+  const keep = a && el.contains(a) && a.id && "value" in a && a.type !== "checkbox" && a.tagName !== "SELECT"
+    ? { id: a.id, value: a.value, s: a.selectionStart, e: a.selectionEnd } : null;
+  el.innerHTML = html;
+  if (!keep) return;
+  const b = el.querySelector("#" + CSS.escape(keep.id));
+  if (!b || b.disabled) return;
+  if (b.value !== keep.value) b.value = keep.value;
+  b.focus({ preventScroll: true });
+  try { b.setSelectionRange(keep.s, keep.e); } catch { /* type sans curseur (date, nombre) */ }
+}
+
+// Enregistrement des notes du panneau : chaque vue déclare sa fonction (prop, valeur, avant).
+const noteSavers = {};
+export const setNoteSaver = (owner, fn) => { noteSavers[owner] = fn; };
+export function bindNotes(side) {
+  side.addEventListener("change", async (e) => {
+    const t = e.target.closest?.("textarea[data-note]");
+    if (!t || !drawerOwner || !noteSavers[drawerOwner]) return;
+    const v = t.value.trim(), before = t.dataset.orig ?? "";
+    if (v === before.trim()) return;
+    const st = side.querySelector(`[data-note-state="${CSS.escape(t.dataset.note)}"]`);
+    if (st) st.textContent = "Enregistrement dans Notion…";
+    t.readOnly = true;
+    try { await noteSavers[drawerOwner](t.dataset.note, v, before); }
+    catch (err) { toast(err.message, "err"); if (st) st.textContent = "Non enregistré"; t.readOnly = false; }
+  });
 }
 
 const OA = {
@@ -80,12 +129,23 @@ const OA = {
  * ordre : { etat, mission } lus dans Notion (Ordre agent, Ordre de mission), ou null.
  */
 export function sideHTML({ notes = [], notesHint = "", notesMissing = "", ordre = null }) {
-  const shown = notes.filter((n) => n.text);
+  // Lot 1 bis : une note qui porte « prop » est modifiable (textarea) si Notion la donne sans mise en forme ;
+  // « locked » : la fonction a dit qu'elle porte une mise en forme (sinon, lecture seule sans explication).
+  const editable = notes.filter((n) => n.prop);
+  const shown = notes.filter((n) => n.text || n.prop);
+  const one = (n) => {
+    const lab = shown.length > 1 || n.label !== "Mes notes" ? `<label class="sn-l" ${n.prop ? `for="mn-${esc(nrm(n.prop).replace(/[^a-z0-9]+/g, "-"))}"` : ""}>${esc(n.label)}</label>` : "";
+    if (n.prop && n.editable) {
+      const id = "mn-" + nrm(n.prop).replace(/[^a-z0-9]+/g, "-");
+      return `${lab}<textarea class="mn-edit" id="${esc(id)}" data-note="${esc(n.prop)}" data-orig="${esc(n.text || "")}" rows="5" maxlength="10000" placeholder="Ta zone libre. Les agents la lisent et n'y écrivent jamais."${lab ? "" : ` aria-label="${esc(n.label)}"`}>${esc(n.text || "")}</textarea>
+        <span class="small muted" data-note-state="${esc(n.prop)}">${n.saved ? "Enregistré dans Notion" : "Enregistré dans Notion en quittant le champ"}</span>`;
+    }
+    return `${lab}${n.text ? `<p class="notes mesnotes">${esc(n.text)}</p>` : `<p class="small muted">Vide dans Notion.</p>`}${n.locked ? `<span class="small muted">Mise en forme dans Notion (gras, lien, mention…) : à modifier dans Notion pour ne pas la perdre.</span>` : ""}`;
+  };
   const notesBody = notesMissing
     ? `<p class="small muted">${esc(notesMissing)}</p>`
-    : shown.length
-      ? shown.map((n) => `${shown.length > 1 || n.label !== "Mes notes" ? `<div class="sn-l">${esc(n.label)}</div>` : ""}<p class="notes mesnotes">${esc(n.text)}</p>`).join("")
-      : `<p class="small muted">Aucune note dans Notion.</p>`;
+    : shown.length ? shown.map(one).join("") : `<p class="small muted">Aucune note dans Notion.</p>`;
+  if (!notesHint) notesHint = editable.some((n) => n.editable) ? "Modifiables ici, écrites dans Notion" : "Lues dans Notion, modifiables dans Notion";
   const o = ordre?.etat ? OA[ordre.etat] : null;
   const prod = o ? `<div class="ag-prod"><div class="ag-prod-h">${ic("book", "ic-sm")}<b>Agent de production</b><span class="chip ${o[0]}">${o[1]}</span></div>
     ${ordre.mission ? `<p class="ag-prod-o">${esc(String(ordre.mission).slice(0, 220))}${String(ordre.mission).length > 220 ? "…" : ""}</p>` : ""}<p class="small muted">${o[2]}</p></div>`

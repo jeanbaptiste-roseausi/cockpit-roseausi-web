@@ -222,8 +222,6 @@ b.warn, .stats b.warn, .pk b.warn { color: var(--st-amber); }
 /* Lot M : synchronisation avec Notion */
 .banner.sync-stale { margin: 0 0 10px; }
 .banner.sync-stale[hidden] { display: none; }
-.banner.sim { margin: 0 16px 0; border-radius: 0 0 var(--r-panel) var(--r-panel); }
-.banner.sim code { font-size: 12.5px; }
 .sync { white-space: nowrap; }
 
 /* Fiche plein écran (lot 1, repris du POC) : posée sur la zone de contenu, menu de gauche visible,
@@ -494,3 +492,42 @@ body.dr-open .main-col { visibility: hidden; }
   .parc-board { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+
+/* ---- Lot 1 bis ---- */
+.mn-edit { border: 1px solid var(--line-strong); background: var(--surface); border-radius: var(--r-panel); padding: 8px 10px; font: 15px/1.45 var(--font-body); color: var(--ink); width: 100%; min-height: 96px; resize: vertical; }
+.mn-edit:focus { outline: 2px solid var(--teal); outline-offset: 1px; }
+.mn-edit[readonly] { opacity: .65; }
+.chip.nat.n-client { background: var(--teal-25); border-color: var(--teal-25); color: var(--teal-strong); }
+.chip.nat.n-reseau { border-color: var(--teal); color: var(--teal-strong); }
+.chip.nat.n-prospect { border-style: dashed; }
+.chip.ini { border-color: var(--line-strong); }
+.chip.ini .ic { color: var(--teal); }
+.fld textarea { min-height: 84px; }
+.paramform { border: 1.5px solid var(--line); border-radius: var(--r-panel); padding: 12px 14px; }
+/* Timeline par initiative : positions en pourcentage, aucune largeur fixe (pas de défilement horizontal). */
+.tl { display: flex; flex-direction: column; gap: 4px; }
+.tl-row { display: grid; grid-template-columns: minmax(110px, 26%) minmax(0, 1fr); gap: 10px; align-items: center; }
+.tl-lab { min-width: 0; display: flex; flex-direction: column; font-size: 13px; line-height: 1.25; }
+.tl-lab b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.tl-lab small { color: var(--ink-subtle); font-size: 11.5px; }
+.tl-track { position: relative; height: 26px; border-radius: 6px; background: var(--surface-alt); overflow: hidden; min-width: 0; }
+.tl-head .tl-track { background: none; height: 18px; overflow: visible; }
+.tl-m { position: absolute; top: 0; font-size: 11px; color: var(--ink-subtle); white-space: nowrap; transform: translateX(2px); }
+.tl-g { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line); }
+.tl-today { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--alert); }
+.tl-bar { position: absolute; top: 6px; height: 14px; border-radius: 7px; background: var(--teal); min-width: 6px; }
+.tl-bar.th-prep { background: var(--teal-50); border: 1px solid var(--teal); }
+.tl-bar.th-pasc { background: var(--surface); border: 1.5px dashed var(--line-dashed); }
+.tl-bar.th-fini { background: var(--line-strong); }
+.tl-nodate { position: absolute; left: 6px; top: 5px; font-size: 11.5px; color: var(--ink-subtle); }
+.tl-act { position: absolute; top: 8px; width: 10px; height: 10px; margin-left: -5px; transform: rotate(45deg); background: var(--surface); border: 2px solid var(--teal-strong); border-radius: 2px; }
+.tl-act.done { background: var(--teal-strong); }
+.tl-act.late { border-color: var(--alert); }
+.tl-int { position: absolute; top: 9px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: var(--ink-muted); }
+.tl-jal { position: absolute; top: 4px; margin-left: -8px; color: var(--alert-strong); }
+a.tl-act, a.tl-int { display: block; }
+.clegend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--ink-muted); margin-top: 8px; }
+.clegend i { display: inline-block; width: 12px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.clegend i.dia { width: 9px; height: 9px; transform: rotate(45deg); border: 2px solid var(--teal-strong); border-radius: 2px; }
+.clegend i.dot2 { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-muted); }
+@media (max-width: 600px) { .tl-row { grid-template-columns: minmax(84px, 32%) minmax(0, 1fr); gap: 6px; } }
