@@ -935,3 +935,41 @@ body.agp-ancre .app { padding-right: calc(var(--agp-w) + 32px); }
 .ego text { font: 700 10.5px var(--font-body); fill: var(--ink); }
 .ego .eg-t { font: 700 9px var(--font-body); fill: var(--ink-subtle); letter-spacing: 1px; }
 .ego a:hover text { text-decoration: underline; }
+
+/* ---------------- Agent sur téléphone (27/11/2026, artefact 1795724779-8f56) ----------------
+   Fiche étroite : le bouton Agent fait passer la fiche sur le fil, plein cadre, Mes notes masqué (classe side-on) ;
+   Fiche y revient. La saisie tient sur une ligne à côté d'Envoyer et grandit jusqu'à environ cinq lignes (agent.js).
+   Clavier ouvert (body.ag-typing), la barre d'onglets s'efface et la fiche ou le panneau Agent occupe la zone
+   visible (--vv-t, --vv-h tirés de visualViewport). Agent global : le panneau plein écran s'arrête au-dessus de la
+   barre d'onglets (--tb-h). Rien ne change sur ordinateur. */
+@media (max-width: 900px) {
+  @container drawer (max-width: 860px) {
+    #drawer.side-on #dr-seg [data-act="drside"], #drawer:not(.side-on) #dr-seg [data-act="drfiche"] { background: var(--surface); color: var(--teal-strong); }
+    #drawer.has-side.side-on .dr-main { overflow: hidden; }
+    #drawer.has-side.side-on .dr-body { display: none; }
+    #drawer.has-side.side-on .dr-side { flex: 1 1 auto; min-height: 0; overflow: hidden; border-top: 0; }
+    #drawer.has-side.side-on .side-notes { display: none; }
+    #drawer.has-side.side-on .side-in { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 8px 12px 10px; gap: 8px; }
+    #drawer.has-side.side-on .side-agent { flex: 1 1 auto; min-height: 0; gap: 8px; }
+    #drawer.has-side.side-on .ag-head b { font-size: 15px; }
+    #drawer.has-side.side-on .ag-prod { padding: 8px 10px; gap: 2px; }
+    #drawer.has-side.side-on .ag-prod > p.small, #drawer.has-side.side-on .ag-prod-o { display: none; }
+    #drawer.has-side.side-on .ag { gap: 8px; }
+    #drawer.has-side.side-on .ag-list { flex: 1 1 auto; min-height: 0; max-height: none; }
+  }
+  .agp.plein { bottom: var(--tb-h, 0px); border-bottom: 1px solid var(--line); }
+  .agp.plein .agp-b { padding: 8px 12px 10px; }
+  .agp.plein .ag { gap: 8px; }
+  .agp.plein .ag-list { min-height: 0; }
+  .ag-m { font-size: 15px; max-width: 94%; }
+  .ag-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 8px; align-items: end; }
+  .ag-form .ag-int { grid-column: 1 / -1; }
+  .ag-int .chip { min-height: 30px; padding: 3px 10px; font-size: 13px; }
+  .ag-form textarea, .ag-form.on textarea { height: 46px; min-height: 46px; resize: none; padding: 10px 12px; overflow-y: hidden; }
+  .ag-form .ag-foot { flex-wrap: nowrap; }
+  .ag-form .ag-foot .btn { min-height: 46px; }
+  .ag-kbd { display: none; }
+  body.ag-typing #tabbar { display: none; }
+  body.ag-typing #drawer { top: var(--vv-t, 0px); bottom: auto; height: var(--vv-h, 100%); }
+  body.ag-typing .agp.plein { top: var(--vv-t, 0px); bottom: auto; height: var(--vv-h, 100%); }
+}

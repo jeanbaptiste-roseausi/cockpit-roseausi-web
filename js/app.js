@@ -14,7 +14,7 @@ import { journalView, bindJournalEvents, bindJournalDrawerEvents } from "./journ
 import { mountSearch } from "./search.js";
 import { $, esc, ic, tickSync, toast, bindNotes } from "./ui.js";
 import { miroirApi, todoApi, pistesApi } from "./api.js";
-import { bindAgent, basculerAgent, allerAuFil } from "./agent.js";
+import { bindAgent, basculerAgent, allerAuFil, vueAgent } from "./agent.js";
 
 // Vues disponibles. Menu aligné sur l'artefact « Pilotage RoseauSI », version 1795691780-62c5
 // (poc/pilotage-2026-11-26.html) : Ma journée, Vue d'ensemble, Pistes, Contacts, Journal, Projets, Actions.
@@ -206,7 +206,7 @@ document.addEventListener("click", (e) => {
   // on fait défiler la zone de la fiche elle-même (scrollIntoView faisait aussi défiler la fiche fixe dans son
   // cadre, d'où l'en-tête perdu et la bande blanche), ou on ouvre la fenêtre de l'agent si elle est détachée.
   if (act === "drside") allerAuFil();
-  if (act === "drfiche") { $("#dr-main").scrollTo({ top: 0, behavior: "smooth" }); $("#dr-body").scrollTo({ top: 0, behavior: "smooth" }); }
+  if (act === "drfiche") { vueAgent(false); $("#dr-main").scrollTo({ top: 0, behavior: "smooth" }); $("#dr-body").scrollTo({ top: 0, behavior: "smooth" }); }
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#drawer").classList.contains("on")) closeDrawer(); });
 window.addEventListener("hashchange", route);

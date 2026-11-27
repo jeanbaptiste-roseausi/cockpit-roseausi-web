@@ -50,6 +50,8 @@ try { Object.assign(PREF, JSON.parse(localStorage.getItem(PREF_CLE) || "{}")); }
 if (!["ancre", "flottant"].includes(PREF.mode)) PREF.mode = "ancre";
 const garder = () => { try { localStorage.setItem(PREF_CLE, JSON.stringify(PREF)); } catch { /* */ } };
 const tel = () => window.matchMedia("(max-width: 900px)").matches;
+// Fiche étroite sur téléphone : la bascule Fiche / Agent de l'en-tête est affichée (panneau sous la fiche).
+const etroite = () => { const sg = document.querySelector("#dr-seg"); return tel() && !!sg && getComputedStyle(sg).display !== "none"; };
 // Sur téléphone le panneau plein écran ne se rouvre jamais tout seul : son ouverture n'est pas mémorisée.
 let ouvertTel = false;
 const ouvert = () => (tel() ? ouvertTel : !!PREF.ouvert);
@@ -250,8 +252,8 @@ function filHTML(c, s, ou) {
     <form class="ag-form on" data-ag-form="1">
       <div class="ag-int" role="group" aria-label="Type de message">${Object.entries(TYPES).map(([k, x]) => `<button type="button" class="chip" data-ag-type="${k}" aria-pressed="${s.type === k}">${ic(x.ic, "ic-sm")}${x.l}</button>`).join("")}</div>
       <label class="sr" for="ag-in">Ton message à l'agent</label>
-      <textarea id="ag-in" rows="3" maxlength="4000" placeholder="${esc(TYPES[s.type].ph)}" ${s.busy ? "disabled" : ""}>${esc(s.draft)}</textarea>
-      <div class="ag-foot"><span class="small muted ag-kbd">Ctrl + Entrée pour envoyer</span><button class="btn sm pri" type="submit" ${s.busy ? "disabled" : ""}>Envoyer</button></div>
+      <textarea id="ag-in" rows="${tel() ? 1 : 3}" maxlength="4000" placeholder="${esc(tel() ? `${TYPES[s.type].l} pour l'agent` : TYPES[s.type].ph)}" ${s.busy ? "disabled" : ""}>${esc(s.draft)}</textarea>
+      <div class="ag-foot">${tel() ? "" : `<span class="small muted ag-kbd">Ctrl + Entrée pour envoyer</span>`}<button class="btn sm pri" type="submit" ${s.busy ? "disabled" : ""}>Envoyer</button></div>
     </form></div>`;
 }
 
@@ -276,6 +278,7 @@ function peindreDans(el, c, ou, keepFocus) {
   el.innerHTML = filHTML(c, s, ou);
   const l = $("#ag-list", el); if (l) l.scrollTop = enBas ? l.scrollHeight : top;
   const t2 = $("#ag-in", el);
+  if (t2) grandir(t2);
   if (t2 && foc && !t2.disabled) { t2.focus({ preventScroll: true }); if (sel) try { t2.setSelectionRange(...sel); } catch { /* */ } }
 }
 
@@ -426,23 +429,75 @@ async function annulerGroupe(gid) {
 
 export function basculerAgent(force) {
   const c = cible();
+  if (placement(c) === "side" && force === undefined && tel() && $("#drawer").classList.contains("side-on")) { vueAgent(false); return; }
   if (placement(c) === "side" && force === undefined) {
     // Fiche ouverte, fil ancré dans son panneau : on y mène (téléphone : sous la fiche).
     allerAuFil(); return;
   }
   const v = force ?? !ouvert();
   if (tel()) ouvertTel = v; else { PREF.ouvert = v; garder(); }
-  paint(v);
-  if (v) setTimeout(() => $("#agp #ag-in")?.focus({ preventScroll: true }), 30);
+  paint(v && !tel());
+  // Sur téléphone, pas de mise au point d'office : le clavier cacherait la conversation qu'on vient d'ouvrir.
+  if (v && !tel()) setTimeout(() => $("#agp #ag-in")?.focus({ preventScroll: true }), 30);
 }
 
 /** Bouton « Agent » de l'en-tête d'une fiche sur téléphone : vers le fil, où qu'il soit. */
 export function allerAuFil() {
   if (PREF.mode === "flottant" || !sideHost()) { basculerAgent(true); return true; }
+  // Téléphone (27/11/2026, artefact 8f56) : la fiche laisse toute la place au fil, Mes notes est masqué.
+  if (etroite()) { vueAgent(true); return true; }
   const main = $("#dr-main"), side = $("#dr-side");
   if (main && side) main.scrollTo({ top: side.offsetTop - main.offsetTop, behavior: "smooth" });
   return true;
 }
+
+/** Téléphone : bascule de la fiche entre son contenu et le fil Agent plein cadre (bouton Fiche / Agent de l'en-tête). */
+export function vueAgent(on) {
+  const d = $("#drawer");
+  d.classList.toggle("side-on", !!on && etroite());
+  for (const b of document.querySelectorAll("#dr-seg button")) b.setAttribute("aria-pressed", String((b.dataset.act === "drside") === d.classList.contains("side-on")));
+  if (on) { const l = $("#dr-side .ag-list"); if (l) l.scrollTop = l.scrollHeight; }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Téléphone (27/11/2026, artefact 8f56) : la saisie tient sur une ligne et grandit avec le texte jusqu'à environ
+// cinq lignes, puis défile. Clavier ouvert, la barre d'onglets s'efface et la fiche ou le panneau Agent occupe la
+// zone visible (visualViewport), la saisie juste au-dessus du clavier. Entrée fait un retour à la ligne.
+const MAX_LIGNES = 5;
+function grandir(t) {
+  if (!tel()) { t.style.height = ""; return; }
+  const cs = getComputedStyle(t);
+  const lh = parseFloat(cs.lineHeight) || 23;
+  const bord = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) + parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+  const max = Math.round(lh * MAX_LIGNES + bord);
+  t.style.height = "auto";
+  const h = Math.min(t.scrollHeight + parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth), max);
+  t.style.height = h + "px";
+  t.style.overflowY = t.scrollHeight + 2 > max ? "auto" : "hidden";
+}
+const estSaisie = (t) => t?.id === "ag-in" && !!t.closest?.(".ag-form");
+function zoneVisible() {
+  const r = document.documentElement.style, vv = window.visualViewport;
+  const tb = document.querySelector("#tabbar");
+  if (tb && !document.body.classList.contains("ag-typing")) r.setProperty("--tb-h", (tb.offsetHeight || 0) + "px");
+  if (!vv) return;
+  r.setProperty("--vv-h", Math.round(vv.height) + "px");
+  r.setProperty("--vv-t", Math.round(vv.offsetTop) + "px");
+}
+document.addEventListener("focusin", (e) => {
+  if (!tel() || !estSaisie(e.target)) return;
+  zoneVisible();
+  document.body.classList.add("ag-typing");
+  if (e.target.closest("#dr-side") && etroite() && !$("#drawer").classList.contains("side-on")) vueAgent(true);
+  grandir(e.target);
+  const l = e.target.closest(".ag")?.querySelector(".ag-list");
+  if (l) setTimeout(() => { l.scrollTop = l.scrollHeight; }, 250);
+});
+document.addEventListener("focusout", (e) => {
+  if (!estSaisie(e.target)) return;
+  setTimeout(() => { if (!estSaisie(document.activeElement)) { document.body.classList.remove("ag-typing"); zoneVisible(); } }, 200);
+});
+if (window.visualViewport) { visualViewport.addEventListener("resize", zoneVisible); visualViewport.addEventListener("scroll", zoneVisible); }
 
 function changerMode(m) {
   PREF.mode = m; if (m === "flottant") { PREF.ouvert = true; if (tel()) ouvertTel = true; }
@@ -548,7 +603,7 @@ function bindFil(root) {
     DECOCHE.set(gid, off);
     paint();
   });
-  root.addEventListener("input", (e) => { if (e.target.id === "ag-in") st(cible().key).draft = e.target.value; });
+  root.addEventListener("input", (e) => { if (e.target.id === "ag-in") { st(cible().key).draft = e.target.value; grandir(e.target); } });
   root.addEventListener("submit", (e) => { if (e.target.closest("[data-ag-form]")) { e.preventDefault(); envoyer(); } });
   root.addEventListener("keydown", (e) => { if (e.target.id === "ag-in" && e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); envoyer(); } });
 }
@@ -560,12 +615,20 @@ bindFil($("#agp-b"));
 bindPanneau();
 setAgentHook(monter);
 // Changement d'écran ou de fiche : après la navigation de app.js (même événement, écouteur suivant).
-window.addEventListener("hashchange", () => { if (tel()) ouvertTel = false; setTimeout(() => paint(), 0); });
+// Téléphone : une autre fiche (ou la fermeture) repart sur le contenu de la fiche, pas sur le fil.
+let ficheVue = (location.hash || "").split("/")[2] || "";
+window.addEventListener("hashchange", () => {
+  if (tel()) ouvertTel = false;
+  const f = (location.hash || "").split("/")[2] || "";
+  if (f !== ficheVue) { ficheVue = f; $("#drawer").classList.remove("side-on"); }
+  setTimeout(() => paint(), 0);
+});
 let large = !tel();
 window.addEventListener("resize", () => {
   const l = !tel();
-  if (l !== large) { large = l; geomFaite = false; paint(); }
+  zoneVisible();
+  if (l !== large) { large = l; geomFaite = false; if (l) { $("#drawer").classList.remove("side-on"); document.body.classList.remove("ag-typing"); } paint(); }
   else if (!$("#agp").hidden && $("#agp").classList.contains("flottant")) placer();
 });
 // L'écran a été redessiné (shell) : le bouton Agent de l'en-tête reprend son état.
-window.addEventListener("cockpit:vue", () => paint());
+window.addEventListener("cockpit:vue", () => { zoneVisible(); paint(); });
