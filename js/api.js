@@ -83,6 +83,8 @@ export const reseauApi = {
   list: () => call("reseau"),
   update: (id, changes) => call("reseau", `/${id}`, { method: "PATCH", body: { changes } }),
   relier: (recommandeur, recommande) => call("reseau", "/lien", { method: "POST", body: { recommandeur, recommande } }),
+  // Retire une mise en lien et remet les étapes d'avant (Annuler du message, Jean-Baptiste seul).
+  retirerLien: (recommandeur, recommande, etapes) => call("reseau", "/lien", { method: "POST", body: { recommandeur, recommande, retirer: true, etapes } }),
   creer: (values) => call("reseau", "/contact", { method: "POST", body: values }),
 };
 

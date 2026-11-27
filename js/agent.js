@@ -7,8 +7,8 @@
 // Fils séparés (26/11/2026, soir) : chaque fiche (contact, tâche, projet, piste, échange du Journal) et chaque écran
 // a son propre fil, comme dans l'artefact (une session par fiche et par page). Un message d'écran part avec la
 // description de l'écran ouvert (ce qu'il affiche, filtres compris), que la fonction relit dans le miroir.
-// Gestes groupés : l'agent propose une liste de changements, fiche par fiche ; rien n'est écrit avant que
-// Jean-Baptiste coche et clique Appliquer. Après application, « Tout annuler » et « Annuler » par ligne.
+// Saisie directe (26/11/2026) : l'agent écrit directement, statuts et plusieurs fiches compris, avec une ligne et
+// un Annuler par fiche et par champ. Gestes groupés seulement si Jean-Baptiste veut voir la liste avant.
 //
 // Deux modes d'affichage, au choix et mémorisés (stockage du navigateur) : ancré à droite (comme au lot 3), ou
 // fenêtre flottante déplaçable et redimensionnable. Sur téléphone, la fenêtre devient un panneau plein écran
@@ -146,19 +146,24 @@ function texte(t) {
   }).join("");
 }
 
-const val = (v) => v == null || v === "" || (Array.isArray(v) && !v.length) ? "vide" : Array.isArray(v) ? `${v.length} lien${v.length > 1 ? "s" : ""}` : /^\d{4}-\d\d-\d\d$/.test(String(v)) ? fd(String(v)) : /^\d{4}-\d\d-\d\dT/.test(String(v)) ? fd(String(v).slice(0, 10)) : String(v).length > 80 ? String(v).slice(0, 80) + "…" : String(v);
-const lien = (a) => a.cible_id ? `<a href="#/${["todo", "projets", "pistes"].includes(a.cible_base) ? a.cible_base : "contacts"}/${esc(a.cible_id)}">${esc(a.cible_nom || "la fiche")}</a>` : esc(a.cible_nom || "");
+const ESTID = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
+const val = (v) => v == null || v === "" || (Array.isArray(v) && !v.length) ? "vide" : Array.isArray(v) ? (v.every((x) => ESTID.test(String(x))) ? `${v.length} lien${v.length > 1 ? "s" : ""}` : v.join(", ")) : v === true ? "oui" : v === false ? "non" : /^\d{4}-\d\d-\d\d$/.test(String(v)) ? fd(String(v)) : /^\d{4}-\d\d-\d\dT/.test(String(v)) ? fd(String(v).slice(0, 10)) : String(v).length > 80 ? String(v).slice(0, 80) + "…" : String(v);
+const lien = (a) => a.cible_id ? `<a href="#/${["todo", "projets", "pistes", "journal"].includes(a.cible_base) ? a.cible_base : "contacts"}/${esc(a.cible_id)}">${esc(a.cible_nom || "la fiche")}</a>` : esc(a.cible_nom || "");
 const diff = (a) => `<span class="ag-diff"><del>${esc(val(a.ancienne))}</del> ${ic("arrow", "ic-sm")} <ins>${esc(val(a.nouvelle))}</ins></span>`;
 
 function actionHTML(a) {
   let quoi;
   if (a.genre === "modifier") {
-    const rel = Array.isArray(a.ancienne) || Array.isArray(a.nouvelle);
+    const rel = [a.ancienne, a.nouvelle].some((v) => Array.isArray(v) && v.length && v.every((x) => ESTID.test(String(x))));
     quoi = `<b>${esc(a.propriete)}</b> de ${lien(a)}${rel ? ` : liens modifiés (${val(a.ancienne)} → ${val(a.nouvelle)})` : diff(a)}`;
   } else if (a.genre === "creer_tache") quoi = `Tâche créée : ${lien(a)}`;
   else if (a.genre === "creer_contact") quoi = `Contact créé : ${lien(a)}`;
   else if (a.genre === "ajouter_contexte") quoi = `Ajouté à la ${esc(a.propriete || "page Contexte")} de ${lien(a)} : <span class="ag-diff"><ins>${esc(val(a.nouvelle))}</ins></span>`;
-  else if (a.genre === "relier") quoi = `Mise en lien : ${esc(a.nouvelle?.recommandeurNom || "un contact")} a recommandé ${lien(a)}`;
+  else if (a.genre === "relier") {
+    const e = a.nouvelle?.etapes || {};
+    const et = (x, nom) => x ? `<br><small>${esc(nom)}</small><span class="ag-diff"><del>${esc(val(x.avant))}</del> ${ic("arrow", "ic-sm")} <ins>${esc(val(x.apres))}</ins></span>` : "";
+    quoi = `Mise en lien : ${esc(a.nouvelle?.recommandeurNom || "un contact")} a recommandé ${lien(a)}${et(e.recommande, a.nouvelle?.recommandeNom || a.cible_nom || "Recommandé")}${et(e.recommandeur, a.nouvelle?.recommandeurNom || "Recommandeur")}`;
+  }
   else quoi = `Proposé : <b>${esc(a.propriete)}</b> de ${lien(a)}${diff(a)}`;
   const btn = a.statut === "faite" && ["modifier", "creer_tache", "creer_contact", "relier"].includes(a.genre)
     ? `<button class="btn sm" data-ag-annuler="${a.id}" data-genre="${a.genre}">${ic("reset", "ic-sm")}Annuler</button>`
@@ -230,14 +235,14 @@ function filHTML(c, s, ou) {
   const sansCle = i && !i.cle ? `<div class="banner info ag-cle">${ic("info", "ic-sm")}<span>L'agent attend sa clé API Anthropic. Tu peux déjà écrire : tes messages sont gardés et les demandes de livrable sont enregistrées.</span></div>` : "";
   const plafond = i && i.cle && i.cumul.cout_usd >= i.plafondUsd ? `<div class="banner ag-cle">${ic("alert", "ic-sm")}<span>Plafond du mois atteint : l'agent ne répond plus jusqu'au mois prochain.</span></div>` : "";
   const intro = c.type === "ecran"
-    ? `<p class="ag-intro">L'agent de cet écran, avec son propre fil. Il voit ce que l'écran affiche, avec ses filtres, et répond aux questions qui traversent plusieurs fiches. Pour un changement sur plusieurs fiches, il te montre d'abord la liste complète, fiche par fiche, et rien n'est écrit avant que tu cliques Appliquer. Il ne touche jamais à Mes notes ni aux statuts, et ne supprime rien.</p>`
+    ? `<p class="ag-intro">L'agent de cet écran, avec son propre fil. Il voit ce que l'écran affiche, avec ses filtres, et répond aux questions qui traversent plusieurs fiches. Il écrit directement autant de fiches que ta demande en touche, statuts compris, avec une ligne et un bouton Annuler par fiche et par champ. Si tu veux voir la liste avant, demande-le, il te la montre et rien n'est écrit avant Appliquer. Il ne touche jamais à Mes notes et ne supprime rien.</p>`
     : c.type === "piste"
-    ? `<p class="ag-intro">L'agent de cette piste, avec son propre fil. Il lit la piste, ses contacts, ses tâches et ses échanges du Journal. Il range tes remarques (Prio, Taille, date de signature, tâche reliée à la piste, contact, mise en lien) et te montre chaque modification avec un bouton Annuler. L'étape et l'issue de la piste, il te les propose. Il ne touche jamais à Mes notes.</p>`
+    ? `<p class="ag-intro">L'agent de cette piste, avec son propre fil. Il lit la piste, ses contacts, ses tâches et ses échanges du Journal. Il range tes remarques (étape, issue, Prio, Taille, date de signature, tâche reliée à la piste, contact, mise en lien) et te montre chaque modification avec un bouton Annuler. Il ne touche jamais à Mes notes.</p>`
     : c.type === "echange"
-    ? `<p class="ag-intro">L'agent de cet échange, avec son propre fil. Il lit l'échange et son compte rendu, ses contacts, sa piste et son projet. Il peut créer les actions qui en découlent (reliées à l'échange), une par une ou en un geste groupé que tu appliques. Il ne touche jamais à Mes notes ni aux statuts, et ne supprime rien.</p>`
+    ? `<p class="ag-intro">L'agent de cet échange, avec son propre fil. Il lit l'échange et son compte rendu, ses contacts, sa piste et son projet. Il peut créer les actions qui en découlent (reliées à l'échange), rattacher l'échange à un projet, une piste ou un contact, et écrire ses champs. Chaque modification s'affiche avec un bouton Annuler. Il ne touche jamais à Mes notes et ne supprime rien.</p>`
     : c.type === "projet"
-    ? `<p class="ag-intro">L'agent du projet lit ses échanges du Journal de bord et sa page Contexte. Il tient les champs marqués Agent (Météo, Motif météo, Retards des tiers, Synthèse agent) et peut ajouter un point à la page Contexte. En Question, il te propose la mise à jour ; réponds oui pour qu'il la fasse. Chaque modification s'affiche ici avec un bouton Annuler et est notée au Journal de l'agent du projet. Il ne touche jamais à Mes notes ni à l'état du projet.</p>`
-    : `<p class="ag-intro">Un seul interlocuteur pour cette fiche. Il répond à tes questions et range tes remarques (champs, replanification, tâche, contact, mise en lien). Chaque modification s'affiche ici avec l'ancienne et la nouvelle valeur, et un bouton Annuler. Il ne touche jamais à Mes notes ni aux statuts, il te les propose.</p>`;
+    ? `<p class="ag-intro">L'agent du projet lit ses échanges du Journal de bord et sa page Contexte. Il écrit les champs du projet (état, météo, prochain jalon et sa date, retards des tiers, synthèse) et peut ajouter un point à la page Contexte. En Question, il te propose la mise à jour ; réponds oui pour qu'il la fasse. Chaque modification s'affiche ici avec un bouton Annuler et est notée au Journal de l'agent du projet. Il ne touche jamais à Mes notes.</p>`
+    : `<p class="ag-intro">Un seul interlocuteur pour cette fiche. Il répond à tes questions et range tes remarques (champs, statut, replanification, tâche, contact, mise en lien). Chaque modification s'affiche ici avec l'ancienne et la nouvelle valeur, et un bouton Annuler. Il ne touche jamais à Mes notes et ne supprime rien.</p>`;
   const list = s.fil === null ? `<p class="small muted">Chargement du fil…</p>`
     : s.fil === "erreur" ? `<div class="banner">${ic("alert", "ic-sm")}<span>Fil indisponible pour l'instant. <button class="lnk" data-ag-relire="1">Réessayer</button></span></div>`
     : s.fil.length ? s.fil.map((e) => messageHTML(e, s)).join("")

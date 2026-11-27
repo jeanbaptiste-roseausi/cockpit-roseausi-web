@@ -1,7 +1,8 @@
 // Vue « Réseau » (lot 2) : parcours des membres du réseau, carte des mises en lien
 // (qui a recommandé qui, rattachements aux organisations et réseaux), création d'un contact recommandé,
 // mise en lien de deux contacts. Lecture et écriture par la fonction reseau (base Contacts).
-// Règle : Jean-Baptiste change lui-même les statuts ; rien ne les change d'office.
+// Règle : Jean-Baptiste change lui-même les étapes. Seule exception, la mise en lien (fonction reseau, POST /lien) :
+// le recommandé passe à Recommandé et le recommandeur à Relais, avec Annuler dans le message (toastLien).
 // 26/11/2026 : parcours en lignes par défaut, repris de l'artefact 1795698879-79f6 (vParcours, parcRow, parcGo) :
 // frise des étapes en cours cliquable, sorties réussies et sorties, tri par étape ou par échéance, menu « ⋯ »,
 // kanban toujours disponible, « Annuler » 6 secondes après chaque changement d'étape.
@@ -262,11 +263,29 @@ async function submitLien() {
   S.busy.add("form"); render();
   try {
     const r = await reseauApi.relier(a, b);
-    toast(r.deja ? "Ces deux contacts étaient déjà reliés." : "Mise en lien enregistrée dans Notion.");
+    toastLien(r, a, b, () => load(true));
     S.form = null;
     load(true);
   } catch (e) { fm.err = e.message; }
   finally { S.busy.delete("form"); render(); }
+}
+
+/**
+ * Message d'une mise en lien (règle des étapes, 26/11/2026) : ce qui a changé, et « Annuler » pendant 6 secondes,
+ * qui retire le lien et remet les deux étapes d'avant. `apres` est appelé après l'écriture et après l'Annuler.
+ */
+export function toastLien(r, recommandeur, recommande, apres = () => {}) {
+  if (r.deja) { toast("Ces deux contacts étaient déjà reliés."); return; }
+  const e = r.etapes || {};
+  const et = [e.recommande ? `recommandé, ${pLab(e.recommande.apres)}` : "", e.recommandeur ? `recommandeur, ${pLab(e.recommandeur.apres)}` : ""].filter(Boolean);
+  const msg = `Mise en lien enregistrée dans Notion.${et.length ? " Étapes : " + et.join(" ; ") + "." : ""}`;
+  toastUndo(msg, async () => {
+    try {
+      const x = await reseauApi.retirerLien(recommandeur, recommande, e);
+      toast((x.etapesGardees || []).length ? "Mise en lien retirée. Une étape avait changé depuis, elle est gardée." : "Mise en lien retirée, étapes d'avant remises.");
+    } catch (err) { toast(err.message, "err"); }
+    apres();
+  });
 }
 
 /** Change l'étape dans Notion ; « Annuler » pendant 6 secondes remet l'étape d'avant (artefact). */

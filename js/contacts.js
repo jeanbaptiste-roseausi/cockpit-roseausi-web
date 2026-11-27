@@ -2,7 +2,7 @@
 // Chaque vue du cockpit expose la même interface : { id, label, icon, render(), open(id) }.
 import { contactsApi, todoApi, projetsIndex, pistesApi, reseauApi } from "./api.js";
 import { $, esc, ic, av, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, ficheTabs, parcChip, taSpan, syncOf, syncSpan, staleBanner, natureChip, setNoteSaver , swapHTML, toastUndo, fmtIcon, initials } from "./ui.js";
-import { invalidateReseau, pLab, pCol, lab } from "./reseau.js";
+import { invalidateReseau, pLab, pCol, lab, toastLien } from "./reseau.js";
 import { jetonsHTML } from "./jetons.js";
 import { contenuHTML, bindContenu } from "./contenu.js";
 import { og, ogLegend } from "./origines.js";
@@ -319,7 +319,7 @@ function recoBlocks(o, z, carte) {
       ${jetonsHTML({ id: "cp-recoby", label: "Qui te l'a recommandé", placeholder: "Chercher une personne", busy, items: [], choices: choices(z.recommandePar), onAdd: (id) => relier(o, id, c.id) })}</div></div>
     <h3 class="sh">A recommandé${og("contacts", "A recommandé")}</h3>${toRows.length ? `<div class="list">${toRows.map((t) => `<a class="row" href="#/contacts/${t.id}"><div class="rm"><div class="rt">${esc(t.nom.trim())}</div></div><div class="rr">${t.parcours ? parcPill(t.parcours) : ""}</div></a>`).join("")}</div>` : `<p class="muted">Personne pour l'instant</p>`}
     <div class="fld" style="margin-top:8px"><span class="lb">Ajouter un contact qu'il ou elle t'a donné</span>${jetonsHTML({ id: "cp-reco", label: "Contact recommandé", placeholder: "Chercher le contact recommandé", busy, items: [], choices: choices(z.aRecommande), onAdd: (id) => relier(o, c.id, id) })}</div>
-    <p class="small muted" style="margin-top:6px">Une mise en lien s'enregistre aussitôt dans Notion (« Recommandé par » du contact recommandé). Elle se retire dans Notion. Les étapes du parcours ne changent pas d'office.</p>
+    <p class="small muted" style="margin-top:6px">Une mise en lien s'enregistre aussitôt dans Notion (« Recommandé par » du contact recommandé). Le recommandé passe à Recommandé s'il n'a pas d'étape ou s'il est en Contact. Le recommandeur passe à Relais, sauf s'il y est déjà ou s'il a une piste créée. « Annuler » dans le message retire le lien et remet les deux étapes d'avant.</p>
     ${carte && (z.recommandePar.length || z.aRecommande.length) ? `<h3 class="sh">Carte</h3>${egoSVG(o, z)}` : ""}`;
 }
 const parcPill = (v) => `<span class="chip parc"><i class="dot" style="background:${pCol(v)}"></i>${esc(pLab(v))}</span>`;
@@ -329,11 +329,15 @@ async function relier(o, recommandeur, recommande) {
   o.saving.add("lien"); renderDrawer();
   try {
     const r = await reseauApi.relier(recommandeur, recommande);
-    toast(r.deja ? "Ces deux contacts étaient déjà reliés." : "Mise en lien enregistrée dans Notion.");
-    o.rz = await reseauData(true).catch(() => o.rz);
-    invalidateReseau();
-    const d = await contactsApi.get(o.id).catch(() => null);
-    if (d && S.open === o) { o.contact = d.contact; o.values = d.values; }
+    const relire = async () => {
+      o.rz = await reseauData(true).catch(() => o.rz);
+      invalidateReseau();
+      const d = await contactsApi.get(o.id).catch(() => null);
+      if (d && S.open === o) { o.contact = d.contact; o.values = d.values; }
+      if (S.open === o) renderDrawer();
+    };
+    toastLien(r, recommandeur, recommande, relire);
+    await relire();
   } catch (e) { toast(e.message, "err"); }
   finally { o.saving.delete("lien"); renderDrawer(); }
 }
