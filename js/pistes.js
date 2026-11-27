@@ -6,7 +6,8 @@ import { contactIndex, invalidateACreer, refreshContacts } from "./contacts.js";
 import { invalidateReseau } from "./reseau.js";
 import { setTaskEtat } from "./todo.js";
 import { $, esc, ic, nrm, fd, due, toast, toastUndo, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, ficheTabs, fmtIcon, taSpan, chip, syncOf, syncSpan, staleBanner, initials, setNoteSaver, swapHTML } from "./ui.js";
-import { og, ogLegend } from "./origines.js";
+import { og } from "./origines.js";
+import { ppOpts, ppSel, ppTxt, ppLink, ppBtn, ppBand, saFold, nextLine } from "./props.js";
 import { jetonsHTML } from "./jetons.js";
 
 const S = {
@@ -306,7 +307,7 @@ function renderDrawer() {
       <a class="btn sm" href="#/todo/new/piste/${p.id}" title="Nouvelle tâche liée à cette piste, créée dans la base TO DO">${ic("todo", "ic-sm")}Action</a>
       <button class="btn sm" disabled title="Échanges au lot 6">${ic("plus", "ic-sm")}Échange</button></div>
       <span class="ifmt">${ic("target")}</span><div style="flex:1;min-width:0"><h1>${esc(p.nom)}</h1>
-      <div class="chips" style="margin-top:8px">${stChip(p.etape)}${issChip(p.issue, true)}${/Opportunit/.test(p.leadOpportunite || "") ? `<span class="chip st-relire">Opportunité</span>` : `<span class="chip">Piste</span>`}${stars(p.prio)}${p.taille ? `<span class="chip">Taille ${esc(p.taille)}</span>` : ""}</div></div></div>
+      ${band(o, p)}</div></div>
     ${o.error ? `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(o.error)}</span></div>` : ""}
     ${o.gagne ? gagneBox(o, p) : ""}
     ${o.plan ? `<div class="banner info">${ic("flag", "ic-sm")}<div style="flex:1;min-width:0"><b>Planifier la prochaine action.</b> Une tâche TO DO liée à la piste est créée dans Notion, avec son intitulé et son échéance. Le texte libre de Notion n'est pas modifié.${planForm(p.id, S.busy.has("plan:" + p.id), "pf")}<div class="dact" style="margin-top:6px"><button class="btn sm" data-piact="plan-non">Fermer</button></div></div></div>` : ""}
@@ -439,34 +440,45 @@ function gagneBox(o, p) {
     <div class="dact" style="margin-top:8px"><button class="btn sm pri" data-piact="gagne-ok" ${busy ? "disabled" : ""}>${busy ? "Enregistrement…" : "Confirmer dans Notion"}</button><button class="btn sm" data-piact="gagne-non">Annuler</button></div></div></div>`;
 }
 
-function synthese(o, p, open) {
+/**
+ * Bande de propriétés de la piste (fiches compactes, 27/11/2026). Étape, issue et priorité se modifient sur place
+ * (data-piprop, même écriture que l'onglet Suivi). La prochaine action reste la tâche TO DO liée (règle du 26/11),
+ * affichée en chip calculée. La pondération (formules Notion) tient en une chip qui ouvre Repères.
+ */
+function band(o, p) {
+  const ed = o.editable || {}, ready = !!(o.values && !p.partial);
+  const can = (k) => ready && !!ed[k];
+  const busy = (k) => S.busy.has("f:" + k);
+  const opts = (k, empty) => ppOpts([...(empty ? [["", empty]] : []), ...(ed[k]?.options || []).map((x) => [x, lab(x) || x])], o.values?.[k] ?? "");
+  const n = starsN(p.prio);
+  const prioShown = n == null ? "+ Priorité" : n === 0 ? "Froide" : "★".repeat(n) + "☆".repeat(3 - n);
   const last = p.echanges?.[0]?.date || p.derniereInteraction;
   const nx = p.prochaine;
-  const nxCell = !p.prochaineCalculee
-    ? `<b>Non calculée</b><small>Les tâches TO DO n'ont pas pu être lues.</small>`
-    : nx ? `<b><a href="#/todo/${esc(nx.id)}">${esc(nx.nom)}</a></b><small>${nx.echeance ? due(nx.echeance) : "Sans échéance"}${p.autresTaches ? ` · ${p.autresTaches} autre${p.autresTaches > 1 ? "s" : ""} tâche${p.autresTaches > 1 ? "s" : ""} ouverte${p.autresTaches > 1 ? "s" : ""}` : ""}</small>`
-    : `<b class="nx-none">Aucune action planifiée</b><small><button class="lnk" data-piact="plan">Planifier</button></small>`;
-  return `${ogLegend()}
-    <div class="sfacts">
-      <div><span>Étape${og("pistes", "Status")}</span><b>${esc(lab(p.etape) || "Absente")}</b><small>${esc(lab(p.issue) || "Issue absente")}${og("pistes", "Gagné/Perdu")}</small></div>
-      <div><span>Dernier échange${og("pistes", "dernierEchange")}</span><b>${last ? esc(fd(last)) : "Aucun"}</b>${last ? `<small>${esc(ago(last))}</small>` : ""}</div>
-      <div><span>Prochaine action${og("pistes", "prochaine")}</span>${nxCell}</div>
-      <div><span>Priorité${og("pistes", "Prio")}</span><b>${starsN(p.prio) == null ? "Non définie" : starsN(p.prio) === 0 ? "Froide" : "★".repeat(starsN(p.prio))}</b><small>${/Opportunit/.test(p.leadOpportunite || "") ? "Opportunité" : "Piste"}${og("pistes", "Lead→Opportunité")}</small></div>
-    </div>
-    ${p.prochaineCalculee && !nx && isActive(p) ? `<div class="banner dashed">${ic("alert", "ic-sm")}<span>Aucune action planifiée : la piste active n'a aucune tâche ouverte liée dans TO DO.</span><button class="btn sm" data-piact="plan">Planifier</button></div>` : ""}
+  const nxLate = nx?.echeance && nx.echeance.slice(0, 10) < today();
+  const opp = /Opportunit/.test(p.leadOpportunite || "");
+  const chips = [
+    can("Status") ? ppSel(`data-piprop="Status"`, opts("Status"), p.etape ? `<i class="dot" style="background:${stCol(p.etape)}"></i>${esc(lab(p.etape))}` : "+ Étape", "Étape de la piste", p.etape ? "" : "pp-add dash", busy("Status")) : stChip(p.etape).replace('class="chip', 'class="chip pp'),
+    can("Gagné/Perdu") ? ppSel(`data-piprop="Gagné/Perdu"`, opts("Gagné/Perdu"), p.issue ? esc(lab(p.issue)) : "+ Issue", "Issue", p.issue ? ISS_CL[lab(p.issue)] ?? "" : "pp-add dash", busy("Gagné/Perdu")) : issChip(p.issue, true).replace('class="chip', 'class="chip pp'),
+    can("Prio") ? ppSel(`data-piprop="Prio"`, opts("Prio", "Non définie"), prioShown, "Priorité", n == null ? "pp-add dash" : "pp-stars", busy("Prio")) : n != null ? ppTxt(prioShown, "pp-stars") : "",
+    opp ? ppTxt("Opportunité", "st-relire") : "",
+    !p.prochaineCalculee ? "" : nx ? ppLink(`#/todo/${nx.id}`, `${nxLate ? ic("alert", "ic-sm") : ic("flag", "ic-sm")}${nx.echeance ? esc(fd(nx.echeance)) : "Sans échéance"}`, `pp-calc dash ${nxLate ? "c-crit" : ""}`, `Prochaine action, tâche TO DO liée : ${nx.nom}`) : "",
+    ppTxt(last ? `Dernier échange ${esc(ago(last))}` : "Aucun échange", "pp-calc dash", last ? `${fd(last)}, calculé depuis le journal` : "Calculé depuis le journal"),
+    ppBtn(`data-pisec="reperes"`, `${esc(pct(p.probabilite))} · ${esc(j1(p.joursPonderes))} pondéré${p.joursPonderes > 1 ? "s" : ""}`, "pp-calc dash", "Pondération, formules Notion. Le détail est dans Repères"),
+    ...p.projets.map((id) => ppLink(`#/projets/${id}`, `${ic("folder", "ic-sm")}${esc(p.projetsNoms?.[id] ?? S.pn[id] ?? "Projet")}`, "pj", "Ouvrir le projet")),
+  ];
+  return ppBand(chips);
+}
+
+function synthese(o, p, open) {
+  const nx = p.prochaine;
+  return `<h3 class="sh">Résumé</h3>${p.resume ? `<p class="rec">${esc(p.resume)}</p>` : `<p class="empty">Pas de résumé dans Notion.</p>`}
+    ${!p.prochaineCalculee ? `<p class="small muted">Prochaine action non calculée, les tâches TO DO n'ont pas pu être lues.</p>`
+      : nx ? nextLine("Prochaine action", `<a href="#/todo/${esc(nx.id)}">${esc(nx.nom)}</a>${nx.echeance ? due(nx.echeance) : `<span class="small muted">sans échéance</span>`}${p.autresTaches ? `<span class="small muted">et ${p.autresTaches} autre${p.autresTaches > 1 ? "s" : ""} tâche${p.autresTaches > 1 ? "s" : ""}</span>` : ""}`)
+      : isActive(p) ? `<div class="banner dashed" style="margin-top:12px">${ic("alert", "ic-sm")}<span>Aucune action planifiée. Le bouton Planifier, en haut de la fiche, crée la tâche liée.</span></div>` : ""}
     ${noteLibre(p)}
-    <h3 class="sh">Pondération <span class="small muted" style="font-weight:400">formules Notion</span></h3>
-    <div class="sfacts">
-      <div><span>Taille${og("pistes", "Taille")}</span><b>${p.taille ? esc(p.taille) : "Non choisie"}</b><small>S 1 j, M 5 j, L 14 j</small></div>
-      <div><span>Jours estimés${og("pistes", "Jours estimés")}</span><b>${j1(p.joursEstimes)}</b><small>${p.caEstime ? `CA estimé ${eur(p.caEstime)} ÷ 650 €` : p.taille ? `taille ${esc(p.taille)}` : "ni taille ni CA estimé"}</small></div>
-      <div><span>Probabilité${og("pistes", "Probabilité")}</span><b>${pct(p.probabilite)}</b><small>selon l'étape et l'issue</small></div>
-      <div><span>Jours pondérés${og("pistes", "Jours pondérés")}</span><b>${j1(p.joursPonderes)}</b><small>${p.dateSignature ? `signature prévue ${esc(fd(p.dateSignature))}` : "date de signature prévue absente"}${og("pistes", "Date de signature prévue")}</small></div>
-    </div>
-    ${p.resume ? `<h3 class="sh">Résumé${og("pistes", "Résumé")}</h3><p class="notes">${esc(p.resume)}</p>` : ""}
-    ${p.syntheseAgent ? `<h3 class="sh">Synthèse agent${og("pistes", "Synthèse agent")}</h3><p class="notes">${esc(p.syntheseAgent)}</p>` : ""}
     ${open.length ? `<h3 class="sh">À faire <button class="lnk" data-pisec="actions">${open.length}</button></h3><div class="list">${open.slice(0, 3).map((t) => taskRow(t, S.busy.has("t:" + t.id))).join("")}</div>` : ""}
     ${p.echanges ? `<h3 class="sh">Derniers échanges <button class="lnk" data-pisec="echanges">${p.echanges.length}</button></h3>${echanges(p, 3)}` : ""}
-    ${p.projets.length ? `<h3 class="sh">Projet${og("pistes", "Projets")}</h3><div class="chips">${p.projets.map((id) => `<a class="chip pj" href="#/projets/${id}">${ic("folder", "ic-sm")}${esc(p.projetsNoms?.[id] ?? S.pn[id] ?? "Projet")}</a>`).join("")}</div>` : ""}`;
+    ${saFold(p.syntheseAgent)}`;
 }
 
 // « Prochaine action » et « Date prochaine action » ne se modifient plus ici (26/11/2026) : la prochaine
@@ -524,6 +536,20 @@ function relContact(pid, op, cid, undoable = true) {
   });
 }
 
+// Pondération (formules Notion), sortie de la Synthèse le 27/11/2026. La taille se modifie ici.
+function ponderation(p) {
+  const o = S.open, ed = o?.editable || {}, def = ed["Taille"], busy = S.busy.has("f:Taille");
+  const taille = def && o.values ? `<select class="sel" id="pi-taille" data-piprop="Taille" ${busy ? "disabled" : ""} aria-label="Taille">${ppOpts([["", "Non choisie"], ...def.options.map((x) => [x, lab(x) || x])], o.values["Taille"] ?? "")}</select>` : `<b>${p.taille ? esc(p.taille) : "Non choisie"}</b>`;
+  return `<h3 class="sh" style="margin-top:0">Pondération <span class="small muted" style="font-weight:400">formules Notion</span></h3>
+    <dl class="kv">
+      <dt>Taille</dt><dd>${taille} <span class="small muted">S 1 j, M 5 j, L 14 j</span></dd>
+      <dt>Jours estimés</dt><dd>${j1(p.joursEstimes)} <span class="small muted">${p.caEstime ? `CA estimé ${eur(p.caEstime)} ÷ 650 €` : p.taille ? `taille ${esc(p.taille)}` : "ni taille ni CA estimé"}</span></dd>
+      <dt>Probabilité</dt><dd>${pct(p.probabilite)} <span class="small muted">selon l'étape et l'issue</span></dd>
+      <dt>Jours pondérés</dt><dd>${j1(p.joursPonderes)} <span class="small muted">${p.dateSignature ? `signature prévue ${esc(fd(p.dateSignature))}` : "date de signature prévue absente"}</span></dd>
+    </dl>
+    <h3 class="sh">Repères</h3>`;
+}
+
 function reperes(p) {
   const rows = [], miss = [];
   const line = (l, v, k) => rows.push(`<dt>${l}${k ? og("pistes", k) : ""}</dt><dd>${v}</dd>`);
@@ -538,7 +564,7 @@ function reperes(p) {
   if (p.idOdoo) line("ID Odoo", esc(p.idOdoo), "ID Odoo");
   if (p.derniereSession) line("Dernière session de l'agent", esc(new Date(p.derniereSession).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })), "Dernière session");
   line("Créée le", esc(fd(p.cree)), "Date de création");
-  return `<dl class="kv">${rows.join("")}</dl>${miss.length ? `<p class="nr">Non renseigné dans Notion : ${miss.join(", ")}.</p>` : ""}`;
+  return `${ponderation(p)}<dl class="kv">${rows.join("")}</dl>${miss.length ? `<p class="nr">Non renseigné dans Notion : ${miss.join(", ")}.</p>` : ""}`;
 }
 
 const taskRow = (t, busy) => { const d = isDone(t); return `<div class="arow ${d ? "done" : ""}">

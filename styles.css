@@ -977,3 +977,43 @@ body.agp-ancre .app { padding-right: calc(var(--agp-w) + 32px); }
 .ag-tools { display: inline-flex; gap: 4px; flex-wrap: wrap; margin-right: auto; }
 .ag-m.bot.arrete { border-style: dashed; }
 .ag-form .ag-foot [data-ag-arreter] { min-width: 96px; }
+
+/* Fiches compactes (27/11/2026, artefact 1795796345-bfec) : bande de propriétés sous le titre, puis le texte d'abord. */
+.cbody > .ch { display: none; }
+.cbody > .sh:first-child, .cbody > .ch + .sh, .cbody > .nextline:first-child { margin-top: 0; }
+.cbody > .banner { margin-bottom: 10px; }
+.props { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
+.chip.pp { position: relative; font-size: 13px; line-height: 20px; padding: 3px 11px; gap: 6px; text-decoration: none; }
+a.chip.pp, button.chip.pp { cursor: pointer; font-family: inherit; }
+a.chip.pp:hover, button.chip.pp:hover { border-color: var(--teal); }
+.chip.pp.ed { cursor: pointer; padding-right: 8px; }
+.chip.pp.ed:hover { border-color: var(--teal); }
+.chip.pp.ed:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
+.chip.pp .ic-xs { width: 13px; height: 13px; opacity: .6; color: inherit; }
+.chip.pp select, .chip.pp input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 16px; border: 0; padding: 0; margin: 0; }
+.chip.pp select[disabled], .chip.pp input[disabled] { cursor: progress; }
+.chip.pp-calc { font-style: italic; font-weight: 600; color: var(--ink-muted); }
+.chip.pp-add { font-weight: 600; color: var(--ink-subtle); }
+.chip.pp-add:hover { color: var(--teal-strong); }
+.chip.pp-stars { color: var(--teal-strong); letter-spacing: 1px; }
+.ppinfo { position: relative; }
+.ppinfo summary { list-style: none; cursor: pointer; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; color: var(--ink-subtle); }
+.ppinfo summary::-webkit-details-marker { display: none; }
+.ppinfo summary:hover, .ppinfo[open] summary { background: var(--teal-25); color: var(--teal-strong); }
+.ppinfo-pop { position: absolute; z-index: 20; top: calc(100% + 4px); right: 0; width: min(300px, 80vw); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-panel); box-shadow: var(--shadow); padding: 10px 12px; font-size: 13px; line-height: 1.45; display: flex; flex-direction: column; gap: 6px; }
+.rec { font-size: 15.5px; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
+.nextline { display: flex; gap: 6px 8px; align-items: baseline; flex-wrap: wrap; font-size: 14px; margin-top: 14px; }
+.nextline .ic { color: var(--teal-strong); align-self: center; }
+.safold { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 10px; font-size: 13.5px; }
+.safold summary { list-style: none; cursor: pointer; display: flex; gap: 8px; align-items: baseline; color: var(--ink-muted); }
+.safold summary::-webkit-details-marker { display: none; }
+.safold summary .ic { align-self: center; color: var(--teal-strong); }
+.safold summary b { color: var(--ink); white-space: nowrap; }
+.safold summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.safold summary::after { content: "▸"; color: var(--teal-strong); }
+.safold[open] summary::after { content: "▾"; margin-left: auto; }
+.safold[open] summary span { display: none; }
+.safold p { margin-top: 6px; }
+.pkpis.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@container drawer (max-width: 900px) { .pkpis.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 900px) { .chip.pp { padding: 5px 11px; } .props { gap: 6px 5px; } }

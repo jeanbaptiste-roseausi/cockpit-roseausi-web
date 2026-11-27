@@ -5,7 +5,8 @@ import { $, esc, ic, av, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, 
 import { invalidateReseau, pLab, pCol, lab, toastLien } from "./reseau.js";
 import { jetonsHTML } from "./jetons.js";
 import { contenuHTML, bindContenu } from "./contenu.js";
-import { og, ogLegend } from "./origines.js";
+import { og } from "./origines.js";
+import { ppOpts, ppSel, ppTxt, ppLink, ppBand, saFold, nextLine } from "./props.js";
 import { refreshPistes, pisteSection } from "./pistes.js";
 import { modeDemande, modesSeg } from "./modes.js";
 
@@ -237,24 +238,49 @@ function renderDrawer() {
   }[cur]();
   swapHTML(drawerHost, `
     <div class="dh"><div class="dact">${acts}</div>${av(c, "lg")}<div style="flex:1;min-width:0"><h1>${esc(c.nom)}</h1><div class="sub">${esc(sub)}</div>
-      <div class="chips" style="margin-top:8px">${natureChip(c.nature) || (c.type ? `<span class="chip">${esc(c.type)}</span>` : "")}${chip(c.qualif, colorOf("Qualif Prospect", c.qualif))}${c.prio ? chip(c.prio, colorOf("Prio", c.prio)) : ""}</div></div></div>
+      ${band(o)}</div></div>
     ${o.error ? `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(o.error)}</span></div>` : ""}
     ${ficheTabs(secs, cur, "data-csec")}
     <section class="cbody" aria-label="${SECS[cur]}">${body}</section>`);
 }
 
+// Classe de couleur d'une pastille d'option Notion, reprise pour la chip de la bande.
+const clsOf = (prop, val) => (chip("x", colorOf(prop, val)).match(/class="chip ([^"]*)"/) || [])[1] || "";
+
+/**
+ * Bande de propriétés du contact (fiches compactes, 27/11/2026). Parcours réseau se modifie sur place avec la même
+ * écriture que l'onglet Parcours réseau (setParcours, Annuler compris). Qualification et priorité suivent saveField.
+ */
+function band(o) {
+  const c = o.contact, ed = S.schema?.editable || {}, ready = !!(o.values && !c.partial);
+  const can = (k) => ready && !!ed[k];
+  const opts = (k, cur) => ppOpts([["", "Non renseigné"], ...(ed[k]?.options || []).map((x) => [x, lab(x) || x])], cur ?? "");
+  const ld = c.dernierEchangeDirect;
+  const last = ld ? ld.date : c.nature == null ? c.dernierEchange : null;
+  const nat = natureChip(c.nature);
+  const chips = [
+    nat ? nat.replace('class="chip', 'class="chip pp pp-calc dash') : c.type ? ppTxt(esc(c.type)) : "",
+    isPerson(c) && can("Parcours réseau") ? ppSel(`data-cparcsel="1"`, opts("Parcours réseau", c.parcours), c.parcours ? `<i class="dot" style="background:${pCol(c.parcours)}"></i>${esc(pLab(c.parcours))}` : "+ Parcours réseau", "Étape du parcours réseau", c.parcours ? "" : "pp-add dash", o.saving.has("parcours"))
+      : isPerson(c) && c.parcours ? ppTxt(`<i class="dot" style="background:${pCol(c.parcours)}"></i>${esc(pLab(c.parcours))}`) : "",
+    can("Qualif Prospect") && isPerson(c) ? ppSel(`data-cprop="Qualif Prospect"`, opts("Qualif Prospect", o.values["Qualif Prospect"]), c.qualif ? esc(c.qualif) : "+ Qualification", "Qualification", c.qualif ? clsOf("Qualif Prospect", c.qualif) : "pp-add dash", o.saving.has("Qualif Prospect"))
+      : c.qualif ? ppTxt(esc(c.qualif), clsOf("Qualif Prospect", c.qualif)) : "",
+    can("Prio") ? ppSel(`data-cprop="Prio"`, opts("Prio", o.values["Prio"]), c.prio ? esc(c.prio) : "+ Priorité", "Priorité", c.prio ? clsOf("Prio", c.prio) : "pp-add dash", o.saving.has("Prio"))
+      : c.prio ? ppTxt(esc(c.prio), clsOf("Prio", c.prio)) : "",
+    c.partial ? "" : ppTxt(last ? `Dernier échange ${esc(fd(last))}` : "Aucun échange", "pp-calc dash", ld ? `Dernier échange direct, lu au Journal de bord : ${ld.titre}` : "Calculé depuis le journal"),
+    ...(isPerson(c) && !c.partial ? (c.recommandeParNoms || []).map((x) => nidC(x.id) === nidC(ME_ID) ? ppTxt("Réseau perso", "", "Recommandé par moi, réseau perso") : x.nom ? ppLink(`#/contacts/${x.id}`, `Par ${esc(String(x.nom).trim())}`, "", "Recommandé par") : "") : []),
+  ];
+  return ppBand(chips);
+}
+
 function synthese(o) {
   const c = o.contact;
-  const orgs = (c.rattacheA || []).map((id) => ({ id, nom: orgName(id) })).filter((x) => x.nom);
   const open = Array.isArray(o.tasks) ? o.tasks.filter((x) => !isDone(x)).sort((a, b) => (a.echeance || "9").localeCompare(b.echeance || "9")) : null;
   // Prochaine étape (artefact) : celle d'une piste ouverte d'abord, sinon la première action ouverte, sinon la
   // prochaine action notée sur la fiche du contact.
   const pp = c.prochaineEtapePiste, next = open?.[0];
-  const ld = c.dernierEchangeDirect;
-  const names = (list) => list.map((x) => nidC(x.id) === nidC(ME_ID) ? "moi, réseau perso" : x.nom ? `<a href="#/contacts/${x.id}">${esc(x.nom)}</a>` : `<span class="muted">fiche non lue</span>`).join(", ");
-  const people = isPerson(c)
-    ? `<div><span>Recommandé par${og("contacts", "Recommandé par")}</span><b>${c.partial || !c.recommandeParNoms ? "…" : c.recommandeParNoms.length ? names(c.recommandeParNoms) : "Contact direct"}</b></div>`
-    : `<div><span>Rattachements${og("contacts", "Rattaché à")}</span><b>${c.partial ? "…" : (c.rattacheANoms || []).length ? names(c.rattacheANoms) : orgs.length ? orgs.map((x) => esc(x.nom)).join(", ") : "Aucun"}</b></div>`;
+  const nx = pp ? `<a href="#/pistes/${esc(pp.piste)}">${esc(pp.action || pp.nom)}</a>${pp.action ? `<span class="small muted">${esc(pp.nom)}</span>` : ""}${pp.date ? due(pp.date) : `<span class="small muted">sans date</span>`}`
+    : next ? `<a href="#/todo/${next.id}">${esc(next.nom)}</a>${next.echeance ? due(next.echeance) : ""}`
+    : c.prochaineAction ? `<span>${esc(c.prochaineAction)}</span>${due(c.dateProchaineAction)}` : "";
   const tel = c.phone ? c.phone.replace(/\s/g, "") : "";
   const coords = [
     tel ? `<a class="btn sm" href="tel:${esc(tel)}">${ic("call", "ic-sm")}Appeler</a>` : "",
@@ -263,20 +289,15 @@ function synthese(o) {
   ].join("");
   const ech = Array.isArray(o.echanges?.echanges) ? o.echanges.echanges : null;
   const openPs = Array.isArray(o.pistes) ? o.pistes.filter((p) => /En cours/.test(p.issue || "")) : null;
-  return `${ogLegend()}<div class="sfacts">
-      ${isPerson(c) ? `<div><span>Statut${og("contacts", "Parcours réseau")}</span><b>${c.parcours ? esc(pLab(c.parcours)) : "Non renseigné"}</b></div>` : ""}
-      ${c.nature == null && !c.partial ? `<div><span>Dernier échange${og("contacts", "Dernier échange")}</span><b>${c.dernierEchange ? esc(fd(c.dernierEchange)) : "Aucun"}</b><small>Propriété de la fiche (journal non lu)</small></div>` : `<div><span>Dernier échange direct${og("contacts", "dernierEchangeDirect")}</span><b>${ld ? esc(fd(ld.date)) : c.partial ? "…" : "Aucun au Journal de bord"}</b>${ld ? `<small><a href="#/journal/${esc(ld.id)}">${esc(ld.titre)}</a></small>` : ""}</div>`}
-      <div><span>Prochaine étape${og("contacts", pp ? "prochaineEtapePiste" : next ? "prochaineEtape" : "Prochaine action")}</span>${pp ? `<b><a href="#/pistes/${esc(pp.piste)}">${esc(pp.action || pp.nom)}</a></b><small>${pp.action ? esc(pp.nom) + " " : ""}${pp.date ? due(pp.date) : "sans date"}</small>`
-        : next ? `<b><a href="#/todo/${next.id}">${esc(next.nom)}</a></b>${next.echeance ? `<small>${due(next.echeance)}</small>` : ""}`
-        : c.prochaineAction ? `<b>${esc(c.prochaineAction)}</b><small>Prochaine action de la fiche ${due(c.dateProchaineAction)}</small>` : `<b>${open === null ? "…" : "Rien de prévu"}</b>`}</div>
-      ${people}
-    </div>
-    ${coords ? `<div class="dact" style="margin:4px 0 14px">${coords}</div>` : ""}
-    ${open && open.length ? `<h3 class="sh">À faire <button class="lnk" data-csec="taches">${open.length}</button></h3><div class="list">${open.slice(0, 3).map(taskRow).join("")}</div>` : open === null ? `<p class="empty">Chargement des actions…</p>` : ""}
+  const orgs = !isPerson(c) && !c.partial && (c.rattacheANoms || []).length ? (c.rattacheANoms || []).map((x) => x.nom ? `<a class="chip pp" href="#/contacts/${x.id}">${esc(x.nom)}</a>` : "").join("") : "";
+  return `${nx ? nextLine("Prochaine étape", nx) : open === null ? `<p class="empty">Chargement des actions…</p>` : ""}
+    ${coords ? `<div class="dact" style="margin:10px 0 4px">${coords}</div>` : ""}
+    ${orgs ? `<h3 class="sh">Rattachements</h3><div class="chips">${orgs}</div>` : ""}
+    ${open && open.length ? `<h3 class="sh">À faire <button class="lnk" data-csec="taches">${open.length}</button></h3><div class="list">${open.slice(0, 3).map(taskRow).join("")}</div>` : ""}
     ${openPs && openPs.length ? `<h3 class="sh">Pistes ouvertes</h3><div class="list">${openPs.slice(0, 3).map(pisteRow).join("")}</div>` : ""}
     <h3 class="sh">Derniers échanges ${ech ? `<button class="lnk" data-csec="echanges">${ech.length}</button>` : ""}</h3>${echangesSec(o, 3, true)}
-    ${c.syntheseAgent ? `<h3 class="sh">Synthèse agent${og("contacts", "Synthèse agent")}</h3><p class="notes">${esc(c.syntheseAgent)}</p>` : ""}
-    ${c.modifie ? `<p class="small muted" style="margin-top:14px">Modifié dans Notion le ${esc(new Date(c.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}${og("contacts", "Modifié le")}. Les notes se modifient dans le panneau Mes notes.</p>` : ""}`;
+    ${saFold(c.syntheseAgent)}
+    ${c.modifie ? `<p class="small muted" style="margin-top:14px">Modifié dans Notion le ${esc(new Date(c.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}. Les notes se modifient dans le panneau Mes notes.</p>` : ""}`;
 }
 
 // ---- Parcours réseau (artefact, parcoursSec) ----
@@ -653,7 +674,11 @@ export function bindDrawerEvents(root) {
     if (!ownsDrawer("contacts") || !S.open || (e.target.id !== "cp-pa" && e.target.id !== "cp-dpa")) return;
     S.open.paDraft = { pa: $("#cp-pa", root)?.value ?? "", dpa: $("#cp-dpa", root)?.value ?? "" };
   });
-  root.addEventListener("change", (e) => { if (e.target.dataset?.cprop) saveField(e.target); });
+  root.addEventListener("change", (e) => {
+    if (e.target.dataset?.cprop) { saveField(e.target); return; }
+    // Bande de propriétés : parcours réseau, même écriture que l'onglet Parcours réseau.
+    if (e.target.dataset?.cparcsel && ownsDrawer("contacts") && S.open && !S.open.isNew) setParcours(S.open, e.target.value);
+  });
   root.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && e.target.dataset?.cprop && e.target.tagName === "INPUT") { e.preventDefault(); e.target.blur(); }
   });

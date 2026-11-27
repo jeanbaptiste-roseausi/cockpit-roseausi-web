@@ -65,8 +65,13 @@ export const ORIGINES = {
   },
 };
 
-/** Pastille d'origine d'un champ. Sans correspondance, rien (mieux vaut rien qu'une origine inventée). */
-export function og(base, key) {
+/**
+ * Pastille d'origine d'un champ. Retirée des fiches le 27/11/2026 (fiches compactes, artefact 1795796345-bfec) :
+ * la bande de propriétés dit la même chose par l'aspect des chips (trait plein, pointillés, +) et l'icône ⓘ.
+ * og() ne rend donc plus rien ; ogBadge() garde l'ancien rendu si on en a de nouveau besoin.
+ */
+export const og = () => "";
+export function ogBadge(base, key) {
   const o = ORIGINES[base]?.[key];
   if (!o) return "";
   const [k, edit, note] = o, [lab, title] = KINDS[k];
@@ -74,5 +79,5 @@ export function og(base, key) {
   return `<span class="og og-${k}" title="${esc(t)}"><span class="sr">Origine : </span>${esc(lab)}${edit ? `${ic("pen", "ic-og")}<span class="sr">, modifiable ici</span>` : ""}</span>`;
 }
 
-/** Légende courte, en tête de la synthèse de chaque fiche. */
+/** Ancienne légende courte, plus affichée depuis le 27/11/2026. */
 export const ogLegend = () => `<div class="og-legend small muted">Qui tient chaque champ :${Object.entries(KINDS).map(([k, [lab, t]]) => `<span class="og og-${k}" title="${esc(t)}">${esc(lab)}</span>`).join("")}<span>; ${ic("pen", "ic-og")} modifiable ici.</span></div>`;

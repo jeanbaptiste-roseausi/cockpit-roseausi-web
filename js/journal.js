@@ -5,6 +5,7 @@ import { journalApi } from "./api.js";
 import { interRow } from "./journee.js";
 import { jetonsHTML } from "./jetons.js";
 import { contenuHTML, bindContenu, oublierBlocs } from "./contenu.js";
+import { ppTxt, ppLink, ppBtn, ppBand, saFold } from "./props.js";
 import { setTaskEtat } from "./todo.js";
 import { $, esc, ic, nrm, fd, toast, toastUndo, setDrawerOwner, ownsDrawer, ficheTop, renderSide, sideHTML, ficheTabs, etatChip, taSpan, chip, syncOf, syncSpan, staleBanner, isDone } from "./ui.js";
 
@@ -202,9 +203,15 @@ function renderDrawer() {
     <div class="dh"><div class="dact">
       <button class="btn sm pri" data-jact="action">${ic("todo", "ic-sm")}Action</button></div>
       <span class="ifmt ${k ? "" : "none"}">${ic(k || "note")}</span><div style="flex:1;min-width:0"><h1>${esc(e.titre)}</h1>
-      <div class="sub">${esc(when)}${e.format ? " · " + esc(lab(e.format)) : ""}${e.duree ? ` · ${e.duree} min` : ""}</div>
-      <div class="chips" style="margin-top:8px">${pj.map((x) => `<a class="chip pj" href="#/projets/${x.id}">${ic("folder", "ic-sm")}${esc(x.nom || "Projet")}</a>`).join("")}${pi.map((x) => `<a class="chip pi" href="#/pistes/${x.id}">${ic("target", "ic-sm")}${esc((x.nom || "Piste").trim())}</a>`).join("")}${e.tags.map((t) => `<span class="chip">${esc(t)}</span>`).join("")}</div></div></div>
-    ${!pj.length && !pi.length ? `<div class="banner dashed">${ic("alert", "ic-sm")}<span>Cet échange n'est rattaché ni à une piste ni à un projet. <button class="lnk" data-jsec="liens">Rattacher</button></span></div>` : ""}
+      <div class="sub">${esc(when)}${e.duree ? ` · ${e.duree} min` : ""}</div>
+      ${ppBand([
+        e.format ? ppTxt(`${ic(k || "note", "ic-sm")}${esc(lab(e.format))}`, "", "Format, se modifie dans Notion") : ppTxt("Format non précisé", "pp-calc dash", "Format, se modifie dans Notion"),
+        ...pj.map((x) => ppLink(`#/projets/${x.id}`, `${ic("folder", "ic-sm")}${esc(x.nom || "Projet")}`, "pj", "Ouvrir le projet")),
+        pj.length ? "" : ppBtn(`data-jsec="liens"`, "+ Projet", "pp-add dash", "Rattacher à un projet"),
+        ...pi.map((x) => ppLink(`#/pistes/${x.id}`, `${ic("target", "ic-sm")}${esc((x.nom || "Piste").trim())}`, "pi", "Ouvrir la piste")),
+        pi.length ? "" : ppBtn(`data-jsec="liens"`, "+ Piste", "pp-add dash", "Rattacher à une piste"),
+        ...e.tags.map((t) => ppTxt(esc(t))),
+      ])}</div></div>
     ${ficheTabs([["synthese", SECS.synthese], ["cr", SECS.cr], ["actions", SECS.actions, acts.length], ["liens", SECS.liens]], cur, "data-jsec")}
     <section class="cbody" aria-label="${esc(SECS[cur])}"><h2 class="ch">${esc(SECS[cur])}</h2>${body}</section>
     <p class="small muted" style="margin-top:14px">${syncSpan(o.synchro, true)}.</p>`;
@@ -225,16 +232,10 @@ const suggestions = (e) => (e.suggestions || []).map((x) => `<div class="banner 
 const crHTML = (o, e) => contenuHTML(o.contenu, { entree: o.id, url: e.url, erreur: o.cErr });
 
 function synthese(o, e, pj, pi, acts, when) {
-  return `<div class="sfacts">
-      <div><span>Date</span><b>${esc(when)}</b></div>
-      <div><span>Format</span><b>${e.format ? esc(lab(e.format)) : "Non précisé"}</b>${e.duree ? `<small>${e.duree} min</small>` : ""}</div>
-      <div><span>Piste</span><b>${pi.length ? pi.map((x) => esc((x.nom || "").trim())).join(", ") : "Aucune"}</b></div>
-      <div><span>Projet</span><b>${pj.length ? pj.map((x) => esc(x.nom || "")).join(", ") : "Aucun"}</b></div>
-    </div>
+  return `<h3 class="sh">Compte rendu</h3>${crHTML(o, e)}
     ${suggestions(e)}
-    ${e.syntheseAgent ? `<h3 class="sh">Synthèse agent</h3><p class="notes">${esc(e.syntheseAgent)}</p>` : ""}
     ${acts.length ? `<h3 class="sh">Actions issues <button class="lnk" data-jsec="actions">${acts.length}</button></h3><div class="list">${acts.slice(0, 4).map(taskRow).join("")}</div>` : ""}
-    <h3 class="sh">Compte rendu</h3>${crHTML(o, e)}`;
+    ${saFold(e.syntheseAgent)}`;
 }
 
 function compteRendu(o, e) {

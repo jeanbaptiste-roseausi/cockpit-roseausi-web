@@ -2,7 +2,8 @@
 // changement d'état en un clic, création de tâche.
 import { todoApi } from "./api.js";
 import { contactIndex } from "./contacts.js";
-import { og, ogLegend } from "./origines.js";
+import { og } from "./origines.js";
+import { ppOpts, ppSel, ppDate, ppTxt, ppLink, ppBtn, ppBand, saFold, DUR_OPT, fmtMin } from "./props.js";
 import { jetonsHTML } from "./jetons.js";
 import { $, esc, ic, nrm, fd, due, chip, toast, toastUndo, setDrawerOwner, ownsDrawer, etatChip, etatLabel, isDone, ficheTop, renderSide, sideHTML, ficheTabs, taSpan, syncOf, syncSpan, staleBanner, setNoteSaver , swapHTML } from "./ui.js";
 
@@ -246,7 +247,7 @@ function renderDrawer() {
   const nameOfProj = (id) => t.projetsNoms?.[id] ?? projById(id)?.nom ?? "Projet";
   const cur = SECS[o.sec] ? o.sec : "synthese";
   const body = {
-    synthese: () => synthese(o, nameOfProj),
+    synthese: () => synthese(o),
     modifier: () => `<h3 class="sh" style="margin-top:0">État</h3>
       <div class="statusbar" role="group" aria-label="Changer l'état">${states.map((s) => `<button class="${s === t.etat ? "on" : ""}" data-tstate="${esc(s)}" ${s === t.etat || o.saving.has("État") ? "disabled" : ""} aria-pressed="${s === t.etat}">${esc(etatLabel(s))}</button>`).join("")}</div>
       <h3 class="sh">Champs</h3>${o.values ? form(o) : `<p class="empty">Chargement des champs…</p>`}
@@ -261,30 +262,73 @@ function renderDrawer() {
         : `<button class="btn sm pri" data-tstate="Terminé">${ic("check", "ic-sm")}Marquer fait</button><button class="btn sm" data-tstate="Annulé">${ic("close", "ic-sm")}Annuler la tâche</button>`}
       <button class="btn sm" data-tsec="modifier">${ic("note", "ic-sm")}Reformuler</button></div>
       <span class="ifmt">${ic("todo")}</span><div style="flex:1;min-width:0"><h1 class="${d ? "strike" : ""}">${esc(t.nom)}</h1>
-      <div class="chips" style="margin-top:8px">${etatChip(t.etat, true)}${t.prio ? chip(t.prio, t.prio === "P1" ? "red" : "") : ""}${t.typeAction ? `<span class="chip">${taSpan(t.typeAction)}</span>` : ""}${t.projets.map((p) => `<a class="chip pj" href="#/projets/${p}">${ic("folder", "ic-sm")}${esc(nameOfProj(p))}</a>`).join("")}${t.creeParAgent ? `<span class="chip dash">Créée par l'agent</span>` : ""}</div></div></div>
+      ${band(o, nameOfProj)}</div></div>
     ${o.error ? `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(o.error)}</span></div>` : ""}
     ${ficheTabs([["synthese", SECS.synthese], ["modifier", SECS.modifier], ["liens", SECS.liens, t.projets.length + t.contacts.length]], cur, "data-tsec")}
     <section class="cbody" aria-label="${SECS[cur]}">${body}</section>`);
 }
 
-function synthese(o, nameOfProj) {
-  const t = o.task, d = isDone(t), busy = o.saving.has("Échéance");
-  return `${ogLegend()}<div class="sfacts">
-      <div><span>État${og("todo", "État")}</span><b>${esc(etatLabel(t.etat) || "Non renseigné")}</b>${t.prio ? `<small>${esc(t.prio)}</small>` : ""}</div>
-      <div><span>Échéance${og("todo", "Échéance")}</span><b>${t.echeance ? esc(fd(t.echeance)) : "Aucune"}</b>${t.echeance && !d ? `<small>${due(t.echeance)}</small>` : ""}
-        ${o.values ? `<label class="echq"><span class="sr">Changer l'échéance</span><input type="date" data-tprop="Échéance" value="${esc(String(o.values["Échéance"] || "").slice(0, 10))}" ${busy ? "disabled" : ""}></label>` : ""}</div>
-      <div><span>Bloc${og("todo", !t.bloc && t.blocDeduit ? "blocDeduit" : "Bloc")}</span><b>${t.bloc ? esc(t.bloc) : t.blocDeduit ? `${esc(t.blocDeduit)} <span class="small muted">(déduit)</span>` : "Non renseigné"}</b>${!t.bloc && t.blocDeduit ? `<small>Déduit du type d'action et de l'état, rien n'est écrit dans Notion</small>` : ""}</div>
-      <div><span>Durée estimée${og("todo", "Durée estimée (min)")}</span><b>${t.dureeMin != null ? `${t.dureeMin} min` : t.partial ? "…" : "Non renseignée"}</b>${t.typeAction ? `<small>${taSpan(t.typeAction)}</small>` : ""}</div>
-      ${t.projets.map((p) => `<a class="sfact-link" href="#/projets/${p}"><span>Projet${og("todo", "Projets")}</span><b>${esc(nameOfProj(p))}</b><small>Ouvrir le projet ›</small></a>`).join("")}
-      ${(t.pistesListe || []).map((p) => `<a class="sfact-link" href="#/pistes/${p.id}"><span>Piste${og("todo", "Pistes/Opportunités")}</span><b>${esc(p.nom)}</b><small>${esc([p.etape, p.issue].filter(Boolean).join(" · ")) || "Ouvrir la piste"} ›</small></a>`).join("")}
-      ${t.pistes && !t.pistesListe ? `<div><span>Piste</span><b>${t.pistes} piste${t.pistes > 1 ? "s" : ""} liée${t.pistes > 1 ? "s" : ""}</b><small>…</small></div>` : ""}
-    </div>
-    ${o.values ? iniSelect(o, "ts-th") : ""}
-    ${!t.projets.length && !t.pistes ? `<div class="banner dashed">${ic("alert", "ic-sm")}<span>Tâche rattachée à aucun projet ni piste.</span><button class="btn sm" data-tsec="liens">Rattacher</button></div>` : ""}
-    ${t.recap ? `<h3 class="sh">Récap${og("todo", "Récap")}</h3><p class="notes">${esc(t.recap)}</p>` : ""}
-    ${t.brouillon || t.lienSource ? `<div class="dact" style="margin:12px 0">${t.brouillon ? `<a class="btn sm pri" href="${esc(t.brouillon)}" target="_blank" rel="noopener">${ic("mail", "ic-sm")}Brouillon Gmail</a>${og("todo", "Brouillon Gmail")}` : ""}${t.lienSource ? `<a class="btn sm" href="${esc(t.lienSource)}" target="_blank" rel="noopener">${ic("ext", "ic-sm")}Source</a>` : ""}</div>` : ""}
-    ${t.syntheseAgent ? `<h3 class="sh">Synthèse agent${og("todo", "Synthèse agent")}</h3><p class="notes">${esc(t.syntheseAgent)}</p>` : ""}
-    ${t.modifie ? `<p class="small muted" style="margin-top:14px">Modifiée dans Notion le ${esc(new Date(t.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}${og("todo", "Modifié le")}. Le récap se modifie dans l'onglet Modifier, Mes notes dans le panneau de droite.</p>` : ""}`;
+// Estimation de la durée d'après le type d'action, tant que la durée n'est pas fixée (artefact, DUR_TA).
+const DUR_TA = { Email: 5, "Compte rendu": 10, "Ordre du jour": 15, Relance: 5, "Prise de contact": 10, Production: 45, Recherche: 30, "Point à creuser": 15 };
+
+/**
+ * Bande de propriétés de la tâche (fiches compactes, 27/11/2026). Les listes portent data-tprop ou data-tini :
+ * l'écriture suit saveField et le choix d'initiative existants.
+ */
+function band(o, nameOfProj) {
+  const t = o.task, d = isDone(t), ed = S.schema?.editable || {}, ready = !!(o.values && !t.partial);
+  const can = (k) => ready && !!ed[k];
+  const opts = (k, empty) => ppOpts([...(empty ? [["", empty]] : []), ...(ed[k]?.options || []).map((x) => [x, etatLabel(x)])], o.values?.[k] ?? "");
+  const late = t.echeance && !d && t.echeance.slice(0, 10) < today(), now = t.echeance && !d && t.echeance.slice(0, 10) === today();
+  const ini = iniOptions(o);
+  const iniNom = (t.themes || [])[0] ? (iniById(t.themes[0])?.nom || "Initiative liée") : "";
+  const chips = [
+    can("État") ? ppSel(`data-tprop="État"`, opts("État"), esc(etatLabel(t.etat) || "Sans état"), "État de la tâche", etatCls(t.etat), o.saving.has("État")) : etatChip(t.etat, true).replace('class="chip', 'class="chip pp'),
+    can("Prio") ? ppSel(`data-tprop="Prio"`, opts("Prio", "Sans priorité"), t.prio ? esc(t.prio) : "+ Priorité", "Priorité", t.prio === "P1" && !d ? "c-crit" : t.prio ? "" : "pp-add dash", o.saving.has("Prio")) : t.prio ? ppTxt(esc(t.prio), t.prio === "P1" && !d ? "c-crit" : "") : "",
+    can("Échéance") ? ppDate(`data-tprop="Échéance"`, o.values["Échéance"], t.echeance ? `${late ? ic("alert", "ic-sm") : ""}${now ? "Aujourd'hui" : esc(fd(t.echeance))}` : "+ Échéance", "Échéance", late ? "c-crit" : now ? "today" : t.echeance ? "" : "pp-add dash", o.saving.has("Échéance"))
+      : t.echeance ? ppTxt(esc(fd(t.echeance)), late ? "c-crit" : "") : "",
+    ...t.projets.map((p) => ppLink(`#/projets/${p}`, `${ic("folder", "ic-sm")}${esc(nameOfProj(p))}`, "pj", "Ouvrir le projet")),
+    ini && ready ? ppSel(`data-tini="1"`, ini, iniNom ? `${ic("layers", "ic-sm")}${esc(iniNom)}` : "+ Initiative", "Initiative, choisir une initiative rattache aussi la tâche à son projet", iniNom ? "" : "pp-add dash", o.saving.has(THEME_REL))
+      : (t.themes || []).map(iniChip).join("").replaceAll('class="chip', 'class="chip pp'),
+    ...(t.pistesListe || []).map((p) => ppLink(`#/pistes/${p.id}`, `${ic("target", "ic-sm")}${esc(p.nom)}`, "pi", "Ouvrir la piste")),
+    !t.projets.length && !t.pistes ? ppBtn(`data-tsec="liens"`, "+ Projet ou piste", "pp-add dash", "Rattacher la tâche") : "",
+    can("Type d'action") ? ppSel(`data-tprop="Type d'action"`, opts("Type d'action", "Non défini"), t.typeAction ? taSpan(t.typeAction) : "+ Type", "Type d'action", t.typeAction ? "" : "pp-add dash", o.saving.has("Type d'action")) : t.typeAction ? ppTxt(taSpan(t.typeAction)) : "",
+    can("Bloc") ? ppSel(`data-tprop="Bloc"`, opts("Bloc", "Non défini"), esc(t.bloc || t.blocDeduit || "+ Bloc"), t.bloc ? "Bloc" : "Bloc déduit du type d'action et de l'état, choisis-en un pour le fixer", t.bloc ? "" : t.blocDeduit ? "pp-calc dash" : "pp-add dash", o.saving.has("Bloc"))
+      : t.bloc || t.blocDeduit ? ppTxt(esc(t.bloc || t.blocDeduit), t.bloc ? "" : "pp-calc dash", t.bloc ? "Bloc" : "Déduit du type d'action et de l'état") : "",
+    can("Durée estimée (min)") ? ppSel(`data-tprop="Durée estimée (min)"`, ppOpts(DUR_OPT, o.values["Durée estimée (min)"] ?? ""), t.dureeMin != null ? fmtMin(t.dureeMin) : "≈ " + fmtMin(DUR_TA[t.typeAction] || 15), t.dureeMin != null ? "Durée estimée" : "Durée estimée d'après le type, choisis-en une pour la fixer", t.dureeMin != null ? "" : "pp-calc dash", o.saving.has("Durée estimée (min)"))
+      : t.dureeMin != null ? ppTxt(fmtMin(t.dureeMin)) : "",
+    t.creeParAgent ? ppTxt("Créée par l'agent", "pp-calc dash") : "",
+  ];
+  return ppBand(chips);
+}
+const etatCls = (e) => (etatChip(e, true).match(/class="chip ([^"]*)"/) || [])[1] || "";
+
+function synthese(o) {
+  const t = o.task;
+  return `<h3 class="sh">Récap</h3>${t.recap ? `<p class="rec">${esc(t.recap)}</p>` : t.partial ? `<p class="empty">Chargement…</p>` : `<p class="empty">Pas encore de récap. <button class="lnk" data-tsec="modifier">L'écrire</button></p>`}
+    ${t.brouillon || t.lienSource ? `<div class="dact" style="margin:12px 0">${t.brouillon ? `<a class="btn sm pri" href="${esc(t.brouillon)}" target="_blank" rel="noopener">${ic("mail", "ic-sm")}Brouillon Gmail</a>` : ""}${t.lienSource ? `<a class="btn sm" href="${esc(t.lienSource)}" target="_blank" rel="noopener">${ic("ext", "ic-sm")}Source</a>` : ""}</div>` : ""}
+    ${saFold(t.syntheseAgent)}
+    ${t.modifie ? `<p class="small muted" style="margin-top:14px">Modifiée dans Notion le ${esc(new Date(t.modifie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }))}. Le récap se modifie dans l'onglet Modifier, Mes notes dans le panneau de droite.</p>` : ""}`;
+}
+
+/** Options de la liste d'initiatives (groupées par projet, projets de la tâche en tête), ou null si indisponible. */
+function iniOptions(o) {
+  const t = o.task;
+  if (!S.schema?.editable?.[THEME_REL] || (t.themes || []).length > 1 || t.themesMore || S.schema.initiativesIndisponibles) return null;
+  const cur = (t.themes || [])[0] || "";
+  const linked = new Set(t.projets.map(nid));
+  const groups = new Map();
+  for (const x of initiatives()) {
+    const pid = (x.projets || [])[0];
+    const p = pid ? projById(pid) : null;
+    if (!p) continue;
+    if (x.etat === "Terminé" && nid(x.id) !== nid(cur)) continue;
+    if (!groups.has(p.id)) groups.set(p.id, { p, items: [] });
+    groups.get(p.id).items.push(x);
+  }
+  const order = [...groups.values()].sort((a, b) => (linked.has(nid(b.p.id)) - linked.has(nid(a.p.id))) || a.p.nom.localeCompare(b.p.nom, "fr"));
+  return `<option value="">Aucune initiative</option>${order.map((g) => `<optgroup label="${esc(g.p.nom)}">${g.items.map((x) => `<option value="${x.id}" ${nid(cur) === nid(x.id) ? "selected" : ""}>${esc(x.nom)}</option>`).join("")}</optgroup>`).join("")}
+    ${cur && !iniById(cur) ? `<option value="${esc(cur)}" selected>Initiative liée (hors liste)</option>` : ""}`;
 }
 
 /**
