@@ -973,3 +973,7 @@ body.agp-ancre .app { padding-right: calc(var(--agp-w) + 32px); }
   body.ag-typing #drawer { top: var(--vv-t, 0px); bottom: auto; height: var(--vv-h, 100%); }
   body.ag-typing .agp.plein { top: var(--vv-t, 0px); bottom: auto; height: var(--vv-h, 100%); }
 }
+/* Mémoire dans la fiche (27/11/2026, artefact 8f56) : Clore, Agent neuf, Nouveau fil, Arrêter */
+.ag-tools { display: inline-flex; gap: 4px; flex-wrap: wrap; margin-right: auto; }
+.ag-m.bot.arrete { border-style: dashed; }
+.ag-form .ag-foot [data-ag-arreter] { min-width: 96px; }

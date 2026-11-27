@@ -98,6 +98,10 @@ export const agentApi = {
   filEcran: (vue) => call("agent", `/ecran/${vue}`),
   envoyerEcran: (vue, typeMessage, texte, ecran) => call("agent", `/ecran/${vue}`, { method: "POST", body: { type: typeMessage, texte, ecran } }),
   groupe: (n, geste, body = {}) => call("agent", `/groupe/${n}/${geste}`, { method: "POST", body }),
+  // Mémoire dans la fiche (27/11/2026) : Clore et Agent neuf (fiche), Nouveau fil (écran), Arrêter (les deux).
+  clore: (type, id, neuf = false) => call("agent", `/${type}/${id}/${neuf ? "neuf" : "clore"}`, { method: "POST", body: {} }),
+  nouveauFil: (vue) => call("agent", `/ecran/${vue}/nouveau`, { method: "POST", body: {} }),
+  arreter: (type, id) => call("agent", `/${type}/${id}/arreter`, { method: "POST", body: {} }),
 };
 
 // Miroir de Notion (lot M) : relecture des pages modifiées dans Notion, à la demande (Actualiser).

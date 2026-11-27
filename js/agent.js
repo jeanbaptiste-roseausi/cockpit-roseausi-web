@@ -10,6 +10,10 @@
 // Saisie directe (26/11/2026) : l'agent écrit directement, statuts et plusieurs fiches compris, avec une ligne et
 // un Annuler par fiche et par champ. Gestes groupés seulement si Jean-Baptiste veut voir la liste avant.
 //
+// Mémoire dans la fiche (27/11/2026, artefact 8f56) : l'agent lit et écrit le corps de la fiche Notion (sections de sa
+// mémoire, Journal de l'agent). Boutons du fil : Clore et Agent neuf sur une fiche, Nouveau fil sur un écran, quand le
+// fil a des messages ; Arrêter pendant un échange (la boucle d'outils s'arrête au tour suivant, ce qui est écrit reste).
+//
 // Deux modes d'affichage, au choix et mémorisés (stockage du navigateur) : ancré à droite (comme au lot 3), ou
 // fenêtre flottante déplaçable et redimensionnable. Sur téléphone, la fenêtre devient un panneau plein écran
 // qu'on ferme en le tirant vers le bas. Le fil reste le même d'un mode à l'autre (état gardé ici, par fil).
@@ -59,7 +63,7 @@ const ouvert = () => (tel() ? ouvertTel : !!PREF.ouvert);
 // ---------------------------------------------------------------------------------------------
 // État par fil : clé = identifiant de la fiche, ou « ecran:<vue> » pour le fil d'un écran.
 const F = new Map();
-const st = (k) => F.get(k) ?? F.set(k, { fil: null, info: null, busy: false, err: "", draft: "", type: "question", prog: "" }).get(k);
+const st = (k) => F.get(k) ?? F.set(k, { fil: null, info: null, busy: false, err: "", draft: "", type: "question", prog: "", attente: "", arret: false }).get(k);
 const DECOCHE = new Map(); // geste groupé → lignes décochées
 
 const drawerOuvert = () => document.body.classList.contains("dr-open") && $("#drawer")?.classList.contains("on");
@@ -158,6 +162,10 @@ function actionHTML(a) {
     quoi = `<b>${esc(a.propriete)}</b> de ${lien(a)}${rel ? ` : liens modifiés (${val(a.ancienne)} → ${val(a.nouvelle)})` : diff(a)}`;
   } else if (a.genre === "creer_tache") quoi = `Tâche créée : ${lien(a)}`;
   else if (a.genre === "creer_contact") quoi = `Contact créé : ${lien(a)}`;
+  else if (a.genre === "corps") {
+    const n = a.nouvelle || {};
+    quoi = `${n.op === "remplacer" ? "Réécrit" : "Ajouté"} dans <b>${esc(a.propriete || "le corps")}</b> de ${lien(a)} : <span class="ag-diff">${n.op === "remplacer" ? `<del>${esc(val(n.avant))}</del> ${ic("arrow", "ic-sm")} ` : ""}<ins>${esc(val(n.texte))}</ins></span>`;
+  }
   else if (a.genre === "ajouter_contexte") quoi = `Ajouté à la ${esc(a.propriete || "page Contexte")} de ${lien(a)} : <span class="ag-diff"><ins>${esc(val(a.nouvelle))}</ins></span>`;
   else if (a.genre === "relier") {
     const e = a.nouvelle?.etapes || {};
@@ -165,7 +173,7 @@ function actionHTML(a) {
     quoi = `Mise en lien : ${esc(a.nouvelle?.recommandeurNom || "un contact")} a recommandé ${lien(a)}${et(e.recommande, a.nouvelle?.recommandeNom || a.cible_nom || "Recommandé")}${et(e.recommandeur, a.nouvelle?.recommandeurNom || "Recommandeur")}`;
   }
   else quoi = `Proposé : <b>${esc(a.propriete)}</b> de ${lien(a)}${diff(a)}`;
-  const btn = a.statut === "faite" && ["modifier", "creer_tache", "creer_contact", "relier"].includes(a.genre)
+  const btn = a.statut === "faite" && ["modifier", "creer_tache", "creer_contact", "relier", "corps"].includes(a.genre)
     ? `<button class="btn sm" data-ag-annuler="${a.id}" data-genre="${a.genre}">${ic("reset", "ic-sm")}Annuler</button>`
     : a.statut === "proposee" ? `<button class="btn sm pri" data-ag-appliquer="${a.id}">${ic("check", "ic-sm")}Appliquer</button>`
     : a.statut === "annulee" ? `<span class="chip">Annulée</span>` : a.statut === "appliquee" ? `<span class="chip c-good">Appliquée</span>`
@@ -220,7 +228,7 @@ function messageHTML(e, s) {
   const acts = e.actions?.length ? `<ul class="ag-acts">${e.actions.map(actionHTML).join("")}</ul>` : "";
   const grps = (e.groupes || []).map((g) => groupeHTML(g, s)).join("");
   const cost = e.modele ? `<span class="ag-when">${esc(heure(e.cree_le))} · ${nb(jetons(e))} jetons · ${usdFin(e.cout_usd)}</span>` : `<span class="ag-when">${esc(heure(e.cree_le))}</span>`;
-  return `<div class="ag-m bot ${e.statut === "erreur" ? "err" : ""} ${grps ? "wide" : ""}">${texte(e.texte)}${acts}${grps}${cost}</div>`;
+  return `<div class="ag-m bot ${e.statut === "erreur" ? "err" : ""} ${e.statut === "arrete" ? "arrete" : ""} ${grps ? "wide" : ""}">${texte(e.texte)}${acts}${grps}${cost}</div>`;
 }
 
 const suggestions = (c) => c.type !== "ecran" ? SUGG[c.type] || SUGG.autre : SUGG[c.view] || SUGG.autre;
@@ -237,28 +245,33 @@ function filHTML(c, s, ou) {
   const intro = c.type === "ecran"
     ? `<p class="ag-intro">L'agent de cet écran, avec son propre fil. Il voit ce que l'écran affiche, avec ses filtres, et répond aux questions qui traversent plusieurs fiches. Il écrit directement autant de fiches que ta demande en touche, statuts compris, avec une ligne et un bouton Annuler par fiche et par champ. Si tu veux voir la liste avant, demande-le, il te la montre et rien n'est écrit avant Appliquer. Il ne touche jamais à Mes notes et ne supprime rien.</p>`
     : c.type === "piste"
-    ? `<p class="ag-intro">L'agent de cette piste, avec son propre fil. Il lit la piste, ses contacts, ses tâches et ses échanges du Journal. Il range tes remarques (étape, issue, Prio, Taille, date de signature, tâche reliée à la piste, contact, mise en lien) et te montre chaque modification avec un bouton Annuler. Il ne touche jamais à Mes notes.</p>`
+    ? `<p class="ag-intro">L'agent de cette piste, avec son propre fil. Il lit la piste, ses contacts, ses tâches et ses échanges du Journal. Il range tes remarques (étape, issue, Prio, Taille, date de signature, tâche reliée à la piste, contact, mise en lien) et te montre chaque modification avec un bouton Annuler. Sa mémoire est la Synthèse agent et le Journal de l'agent en fin de page. Il n'écrit pas ailleurs dans le corps de la page, ni dans Mes notes.</p>`
     : c.type === "echange"
     ? `<p class="ag-intro">L'agent de cet échange, avec son propre fil. Il lit l'échange et son compte rendu, ses contacts, sa piste et son projet. Il peut créer les actions qui en découlent (reliées à l'échange), rattacher l'échange à un projet, une piste ou un contact, et écrire ses champs. Chaque modification s'affiche avec un bouton Annuler. Il ne touche jamais à Mes notes et ne supprime rien.</p>`
     : c.type === "projet"
-    ? `<p class="ag-intro">L'agent du projet lit ses échanges du Journal de bord et sa page Contexte. Il écrit les champs du projet (état, météo, prochain jalon et sa date, retards des tiers, synthèse) et peut ajouter un point à la page Contexte. En Question, il te propose la mise à jour ; réponds oui pour qu'il la fasse. Chaque modification s'affiche ici avec un bouton Annuler et est notée au Journal de l'agent du projet. Il ne touche jamais à Mes notes.</p>`
-    : `<p class="ag-intro">Un seul interlocuteur pour cette fiche. Il répond à tes questions et range tes remarques (champs, statut, replanification, tâche, contact, mise en lien). Chaque modification s'affiche ici avec l'ancienne et la nouvelle valeur, et un bouton Annuler. Il ne touche jamais à Mes notes et ne supprime rien.</p>`;
+    ? `<p class="ag-intro">L'agent du projet lit ses échanges du Journal de bord et sa page Contexte. Il écrit les champs du projet (état, météo, prochain jalon et sa date, retards des tiers, synthèse) et peut ajouter un point à la page Contexte. En Question, il te propose la mise à jour ; réponds oui pour qu'il la fasse. Chaque modification s'affiche ici avec un bouton Annuler et est notée au Journal de l'agent du projet. Il n'écrit pas ailleurs dans le corps de la page, ni dans Mes notes.</p>`
+    : `<p class="ag-intro">Un seul interlocuteur pour cette fiche. Il répond à tes questions et range tes remarques (champs, statut, replanification, tâche, contact, mise en lien). Sa mémoire est la fiche Notion elle-même, ${c.type === "contact" ? "sections Relation, Liens, Engagements en cours, Fil des échanges" : "sections État actuel, Décisions, Livrables"} et Journal de l'agent. Chaque modification s'affiche ici avec un bouton Annuler. Clore met la fiche à jour, Agent neuf repart d'un fil vide. Il ne touche jamais à Mes notes et ne supprime rien.</p>`;
   const list = s.fil === null ? `<p class="small muted">Chargement du fil…</p>`
     : s.fil === "erreur" ? `<div class="banner">${ic("alert", "ic-sm")}<span>Fil indisponible pour l'instant. <button class="lnk" data-ag-relire="1">Réessayer</button></span></div>`
     : s.fil.length ? s.fil.map((e) => messageHTML(e, s)).join("")
     : `${intro}<div class="ag-sugg">${suggestions(c).map((t, n) => `<button class="chip" type="button" data-ag-sugg="${n}">${esc(t)}</button>`).join("")}</div>`;
-  const live = s.busy ? `<div class="ag-m bot live" aria-live="polite"><p class="muted">${s.type === "livrable" ? "Enregistrement…" : "L'agent réfléchit…"}</p></div>` : "";
+  const live = s.busy ? `<div class="ag-m bot live" aria-live="polite"><p class="muted">${s.arret ? "Arrêt demandé, l'agent s'arrête au tour suivant…" : s.attente || (s.type === "livrable" ? "Enregistrement…" : "L'agent réfléchit…")}</p></div>` : "";
+  // Clore, Agent neuf (fiche) ou Nouveau fil (écran) : quand le fil a des messages et n'est pas occupé.
+  const aDesMessages = Array.isArray(s.fil) && s.fil.some((e) => e.auteur !== "note");
+  const outils = aDesMessages && !s.busy && !s.prog ? (c.type === "ecran"
+    ? `<span class="ag-tools"><button class="btn sm ghost" type="button" data-ag-nouveau="1" title="Repart d'un fil vide">${ic("reset", "ic-sm")}Nouveau fil</button></span>`
+    : `<span class="ag-tools"><button class="btn sm ghost" type="button" data-ag-clore="clore" title="Met à jour la mémoire de la fiche, la synthèse et la dernière session">${ic("check", "ic-sm")}Clore</button><button class="btn sm ghost" type="button" data-ag-clore="neuf" title="Consolide la fiche puis repart avec un agent neuf">${ic("reset", "ic-sm")}Agent neuf</button></span>`) : "";
   const prog = s.prog ? `<p class="ag-note ag-prog" aria-live="polite">${esc(s.prog)}</p>` : "";
   void flot;
   return `<div class="ag" data-ag-fil="${esc(c.key)}">
-    <div class="ag-top">${cumul}${modeBtn}</div>${sansCle}${plafond}
+    <div class="ag-top">${outils}${cumul}${modeBtn}</div>${sansCle}${plafond}
     <div class="ag-list" id="ag-list">${list}${live}${prog}</div>
     ${s.err ? `<div class="banner">${ic("alert", "ic-sm")}<span>${esc(s.err)}</span></div>` : ""}
     <form class="ag-form on" data-ag-form="1">
       <div class="ag-int" role="group" aria-label="Type de message">${Object.entries(TYPES).map(([k, x]) => `<button type="button" class="chip" data-ag-type="${k}" aria-pressed="${s.type === k}">${ic(x.ic, "ic-sm")}${x.l}</button>`).join("")}</div>
       <label class="sr" for="ag-in">Ton message à l'agent</label>
       <textarea id="ag-in" rows="${tel() ? 1 : 3}" maxlength="4000" placeholder="${esc(tel() ? `${TYPES[s.type].l} pour l'agent` : TYPES[s.type].ph)}" ${s.busy ? "disabled" : ""}>${esc(s.draft)}</textarea>
-      <div class="ag-foot">${tel() ? "" : `<span class="small muted ag-kbd">Ctrl + Entrée pour envoyer</span>`}<button class="btn sm pri" type="submit" ${s.busy ? "disabled" : ""}>Envoyer</button></div>
+      <div class="ag-foot">${tel() ? "" : `<span class="small muted ag-kbd">Ctrl + Entrée pour envoyer</span>`}${s.busy && s.attente !== "enreg" ? `<button class="btn sm" type="button" data-ag-arreter="1" ${s.arret ? "disabled" : ""}>${ic("close", "ic-sm")}Arrêter</button>` : `<button class="btn sm pri" type="submit" ${s.busy ? "disabled" : ""}>Envoyer</button>`}</div>
     </form></div>`;
 }
 
@@ -351,14 +364,45 @@ async function envoyer() {
   const s = st(c.key);
   const t = ($("#ag-in")?.value ?? s.draft).trim();
   if (!t || s.busy) return;
-  s.busy = true; s.err = ""; s.draft = t; paint(true);
+  s.busy = true; s.arret = false; s.attente = s.type === "livrable" ? "enreg" : ""; s.err = ""; s.draft = t; paint(true);
   try {
     const r = c.type === "ecran" ? await agentApi.envoyerEcran(c.view, s.type, t, ecranCourant(c)) : await agentApi.envoyer(c.type, c.id, s.type, t);
     s.fil = r.fil; s.info = r; s.draft = "";
     if (r.ecrit) ficheModifiee();
   } catch (e) { s.err = e.message || "L'agent n'a pas pu répondre."; }
-  s.busy = false;
+  s.busy = false; s.arret = false; s.attente = "";
   if (cible().key === c.key) paint(true);
+}
+
+/** Clore ou Agent neuf (fiche) : l'agent consolide la fiche, puis le fil dit que la fiche est à jour (ou repart vide). */
+async function cloreFil(neuf) {
+  const c = cible(), s = st(c.key);
+  if (s.busy || c.type === "ecran") return;
+  s.busy = true; s.arret = false; s.err = ""; s.attente = neuf ? "Consolidation de la fiche avant de passer le relais à un agent neuf…" : "Clôture de la session, l'agent met la fiche à jour…"; paint();
+  try {
+    const r = await agentApi.clore(c.type, c.id, neuf);
+    s.fil = r.fil; s.info = r;
+    if (r.ecrit) ficheModifiee();
+  } catch (e) { s.err = e.message || "La clôture n'a pas abouti."; }
+  s.busy = false; s.arret = false; s.attente = "";
+  if (cible().key === c.key) paint();
+}
+
+/** Écran : Nouveau fil, sans consolidation. */
+async function nouveauFil() {
+  const c = cible(), s = st(c.key);
+  if (s.busy || c.type !== "ecran") return;
+  try { const r = await agentApi.nouveauFil(c.view); s.fil = r.fil; s.info = r; s.err = ""; } catch (e) { toast(e.message, "err"); }
+  if (cible().key === c.key) paint();
+}
+
+/** Arrêter : l'échange en cours s'arrête au tour suivant ; ce qui est déjà écrit reste, avec ses Annuler. */
+async function arreter() {
+  const c = cible(), s = st(c.key);
+  if (!s.busy || s.arret) return;
+  s.arret = true; paint();
+  try { await agentApi.arreter(c.type === "ecran" ? "ecran" : c.type, c.type === "ecran" ? c.view : c.id); }
+  catch (e) { s.arret = false; toast(e.message, "err"); paint(); }
 }
 
 async function geste(kind, id, genre) {
@@ -579,6 +623,10 @@ function bindFil(root) {
     if (ty) { s.draft = $("#ag-in")?.value ?? s.draft; s.type = ty.dataset.agType; paint(true); return; }
     const sg = e.target.closest("[data-ag-sugg]");
     if (sg) { s.type = "question"; s.draft = suggestions(c)[Number(sg.dataset.agSugg)]; paint(true); return; }
+    const cl = e.target.closest("[data-ag-clore]");
+    if (cl) { cloreFil(cl.dataset.agClore === "neuf"); return; }
+    if (e.target.closest("[data-ag-nouveau]")) { nouveauFil(); return; }
+    if (e.target.closest("[data-ag-arreter]")) { arreter(); return; }
     const an = e.target.closest("[data-ag-annuler]");
     if (an) { geste("annuler", an.dataset.agAnnuler, an.dataset.genre); return; }
     const ap = e.target.closest("[data-ag-appliquer]");
