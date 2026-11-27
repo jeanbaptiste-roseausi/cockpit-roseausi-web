@@ -1,10 +1,11 @@
 // Vue « Contacts » : liste des contacts actifs et fiche modifiable.
 // Chaque vue du cockpit expose la même interface : { id, label, icon, render(), open(id) }.
-import { contactsApi, todoApi, projetsIndex, pistesApi, reseauApi } from "./api.js";
+import { contactsApi, todoApi, projetsIndex, pistesApi, reseauApi, googleApi } from "./api.js";
 import { $, esc, ic, av, nrm, fd, due, chip, toast, setDrawerOwner, ownsDrawer, etatChip, isDone, ficheTop, renderSide, sideHTML, ficheTabs, parcChip, taSpan, syncOf, syncSpan, staleBanner, natureChip, setNoteSaver , swapHTML, toastUndo, fmtIcon, initials } from "./ui.js";
 import { invalidateReseau, pLab, pCol, lab, toastLien } from "./reseau.js";
 import { jetonsHTML } from "./jetons.js";
 import { contenuHTML, bindContenu } from "./contenu.js";
+import { gread, gstate, gsrc, filRow } from "./google.js";
 import { og } from "./origines.js";
 import { ppOpts, ppSel, ppTxt, ppLink, ppBand, saFold, nextLine } from "./props.js";
 import { refreshPistes, pisteSection } from "./pistes.js";
@@ -112,8 +113,13 @@ function render() {
   }
   // Conserve le focus et la position du curseur dans le champ de recherche pendant la frappe.
   const active = document.activeElement?.id, pos = document.activeElement?.selectionStart;
+  // « Rattacher un existant » (27/11/2026) : une relecture de la liste qui se termine pendant la saisie réécrit la
+  // vue ; les noms déjà tapés sont repris, sinon le clic partait avec un champ vide (échec intermittent du banc).
+  const tapes = new Map([...host.querySelectorAll("[data-scpiste]")].filter((i) => i.value).map((i) => [i.dataset.scpiste, i.value]));
   host.innerHTML = head + body;
+  for (const [id, v] of tapes) { const i = host.querySelector(`[data-scpiste="${CSS.escape(id)}"]`); if (i) i.value = v; }
   if (active === "cf-q") { const i = $("#cf-q", host); i.focus(); try { i.setSelectionRange(pos, pos); } catch { /* */ } }
+  else if (active?.startsWith("sc-")) { const i = host.querySelector(`#${CSS.escape(active)}`); if (i) { i.focus(); try { i.setSelectionRange(pos, pos); } catch { /* */ } } }
 }
 
 // Ligne (POC, contactRow) : parcours, pistes en cours (lot 2, suite), actions ouvertes, mail, dernier échange direct.
@@ -232,7 +238,7 @@ function renderDrawer() {
   ].join("");
   const sub = [subOf(c), c.type !== "Personne" ? c.segmentation : null].filter(Boolean).join(" · ");
   const body = {
-    synthese: () => synthese(o), parcours: () => parcoursSec(o), echanges: () => echangesSec(o, 400), mails: () => mailsSec(c),
+    synthese: () => synthese(o), parcours: () => parcoursSec(o), echanges: () => echangesSec(o, 400), mails: () => mailsSec(o),
     pistes: () => pistesSection(o), taches: () => tasksSection(o), liens: () => liensSec(o), membres: () => membresSec(c),
     fiche: () => o.values ? form(o) : `<p class="empty">Chargement des champs…</p>`, memoire: () => memoireSec(o),
   }[cur]();
@@ -404,8 +410,15 @@ function echangesSec(o, max, court = false) {
     ${!court && e.echanges.length > max ? `<p class="small muted" style="margin-top:6px">Et ${e.echanges.length - max} échanges plus anciens.</p>` : ""}`;
 }
 
-// ---- Mails : lot 5b (Gmail), pas encore dans main ----
-const mailsSec = (c) => `<div class="banner dashed">${ic("mail", "ic-sm")}<span><b>Accès Google à relier.</b> Les mails échangés avec ${esc(String(c.nom).trim())}${c.email ? ` (${esc(c.email)})` : ""} s'afficheront ici quand la liaison Gmail (lot 5b) sera en ligne.</span></div>`;
+// ---- Mails : fils Gmail du contact, par son adresse, six mois (lot 5b) ----
+function mailsSec(o) {
+  const rerender = () => { if (S.open?.id === o.id && ownsDrawer("contacts") && o.sec === "mails") renderDrawer(); };
+  const gm = gread(`contact:${o.id}`, () => googleApi.contact(o.id), rerender);
+  const st = gstate(gm, { quoi: "Gmail" });
+  if (st) return st;
+  if (gm.data.sansAdresse) return `<p class="empty">Pas d'adresse mail sur la fiche Notion : aucun fil Gmail ne peut lui être relié.</p>`;
+  return `<p class="small muted" style="margin:0 0 6px">${esc(gm.data.regle)} ${gsrc(gm.data)}</p><div class="list">${gm.data.fils.map((f) => filRow(f)).join("") || `<p class="empty">Aucun fil Gmail avec ${esc(gm.data.contact.emails.join(", "))} sur six mois.</p>`}</div>`;
+}
 
 // ---- Mises en lien (personne) et Membres (organisation, réseau) ----
 const liensSec = (o) => recoBlocks(o, rzOf(o, o.contact.id), true);

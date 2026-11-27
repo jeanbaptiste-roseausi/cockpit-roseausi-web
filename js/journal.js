@@ -1,9 +1,10 @@
 // Vue « Journal » (lot 5a, 26/11/2026) : entrées du Journal de bord du miroir, par semaine ou en calendrier,
 // reliées aux contacts, pistes et projets. Fiche d'une entrée plein écran, onglets de l'artefact : Synthèse,
 // Compte rendu (corps de la page Notion, lu à la demande, 26/11/2026), Actions issues, Projet et initiative.
-import { journalApi } from "./api.js";
+import { journalApi, googleApi } from "./api.js";
 import { interRow } from "./journee.js";
 import { jetonsHTML } from "./jetons.js";
+import { gread, gstate, gsrc, filRow } from "./google.js";
 import { contenuHTML, bindContenu, oublierBlocs } from "./contenu.js";
 import { ppTxt, ppLink, ppBtn, ppBand, saFold } from "./props.js";
 import { setTaskEtat } from "./todo.js";
@@ -20,7 +21,7 @@ const parseD = (s) => new Date(/T/.test(s) ? s : s + "T00:00:00");
 const kindOf = (f) => /atelier/i.test(f || "") ? "atelier" : /r[ée]union/i.test(f || "") ? "reunion" : /call|appel/i.test(f || "") ? "call" : null;
 const mobile = () => window.matchMedia("(max-width: 900px)").matches;
 
-const S = { data: null, error: null, loading: false, f: { vue: "liste", fmt: "", lien: "", q: "", wk: "" }, open: null, busy: false };
+const S = { data: null, error: null, loading: false, f: { vue: "liste", fmt: "", lien: "", q: "", wk: "", src: "" }, open: null, busy: false };
 let host = null, drawerHost = null;
 
 export const journalView = {
@@ -31,7 +32,7 @@ export const journalView = {
   async mount(container, drawer) { host = container; drawerHost = drawer; render(); await load(!!S.data); },
   open: openEntree,
   close: () => { S.open = null; },
-  reload: async () => { await load(true); if (S.open) openEntree(S.open.id, true); },
+  reload: async () => { gread("journal-gmail", () => googleApi.journal(), render, { frais: true }); await load(true); if (S.open) openEntree(S.open.id, true); },
 };
 
 async function load(silent = false) {
@@ -67,20 +68,30 @@ function render() {
     <div class="seg" role="group" aria-label="Format">${seg("fmt", "", "Tout")}${seg("fmt", "atelier", "Ateliers")}${seg("fmt", "reunion", "Réunions")}${seg("fmt", "call", "Appels")}${seg("fmt", "autre", "Sans format")}</div>
     <label class="sr" for="jf-l">Rattachement</label><select class="sel" id="jf-l" data-jfsel="lien"><option value="">Tous les rattachements</option><option value="pistes" ${f.lien === "pistes" ? "selected" : ""}>Liées à une piste</option><option value="none" ${f.lien === "none" ? "selected" : ""}>Non rattachées</option>${prj.map((p) => `<option value="${p.id}" ${f.lien === p.id ? "selected" : ""}>${esc(p.nom)}</option>`).join("")}</select>
     <label class="sr" for="jf-q">Filtrer</label><input class="inp grow" id="jf-q" type="search" placeholder="Titre, piste, projet, contact…" value="${esc(f.q)}" autocomplete="off"></div>`;
-  const list = filtered();
-  const intro = `<p class="small muted" style="margin:-4px 0 10px">${list.length} entrée${list.length > 1 ? "s" : ""} du Journal de bord depuis le ${esc(fd(d.depuis))}. ${esc(d.exclus)} ${syncSpan(syncOf(d), true)}${S.loading ? ", mise à jour…" : ""}.</p>`;
+  const list = f.src === "gmail" ? [] : filtered();
+  // Lot 5b : échanges Gmail des contacts, à côté des entrées du Journal de bord (vue Liste).
+  const gm = f.src === "journal" || f.vue !== "liste" ? null : gread("journal-gmail", () => googleApi.journal(), render);
+  const q = nrm(f.q.trim());
+  const fils = gm?.data && !f.fmt && !f.lien ? gm.data.fils.filter((x) => !q || nrm([x.sujet, ...x.contacts.map((c) => c.nom)].join(" ")).includes(q)) : [];
+  S.fils = fils;
+  const gline = gm ? (gstate(gm, { quoi: "Gmail" }) ? `<div style="margin:-4px 0 10px">${gstate(gm, { quoi: "Gmail" })}</div>` : `<p class="small muted" style="margin:-4px 0 10px">${fils.length} échange${fils.length > 1 ? "s" : ""} Gmail avec tes contacts sur ${gm.data.jours} jours${f.fmt || f.lien ? " (masqués par le filtre de format ou de rattachement)" : ""}. ${gsrc(gm.data)}.</p>`) : "";
+  const intro = `<div class="seg" role="group" aria-label="Source" style="margin:-4px 0 10px">${seg("src", "", "Tout")}${seg("src", "journal", "Journal de bord")}${seg("src", "gmail", ic("mail", "ic-sm") + " Gmail")}</div>
+    ${f.src === "gmail" ? "" : `<p class="small muted" style="margin:-4px 0 10px">${list.length} entrée${list.length > 1 ? "s" : ""} du Journal de bord depuis le ${esc(fd(d.depuis))}. ${esc(d.exclus)} ${syncSpan(syncOf(d), true)}${S.loading ? ", mise à jour…" : ""}.</p>`}${gline}`;
   const active = document.activeElement?.id, pos = document.activeElement?.selectionStart;
   host.innerHTML = head + staleBanner(syncOf(d)) + intro + (f.vue === "semaine" ? week(list) : weeks(list));
   if (active === "jf-q") { const i = $("#jf-q", host); i.focus(); try { i.setSelectionRange(pos, pos); } catch { /* */ } }
 }
 
 function weeks(list) {
-  if (!list.length) return `<div class="card"><p class="empty">Aucune entrée pour ces filtres.</p></div>`;
+  // Entrées du journal et fils Gmail, du plus récent au plus ancien, groupés par semaine.
+  const all = [...list.map((e) => ({ d: e.date, e })), ...(S.fils || []).map((g) => ({ d: g.dernier.le, g }))]
+    .sort((a, b) => String(b.d).localeCompare(String(a.d)));
+  if (!all.length) return `<div class="card"><p class="empty">Aucune entrée pour ces filtres.</p></div>`;
   const groups = new Map();
-  for (const e of list) { const k = iso(mondayOf(parseD(e.date))); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(e); }
+  for (const x of all) { const k = iso(mondayOf(parseD(x.g ? x.d.slice(0, 10) : x.d))); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); }
   const cur = iso(mondayOf(new Date()));
   let html = `<div class="card">`;
-  for (const [k, items] of groups) html += `<div class="wk">${k === cur ? "Cette semaine" : `Semaine du ${esc(fd(k))}`} · ${items.length}</div><div class="list">${items.map((e) => interRow(e, S.data)).join("")}</div>`;
+  for (const [k, items] of groups) html += `<div class="wk">${k === cur ? "Cette semaine" : `Semaine du ${esc(fd(k))}`} · ${items.length}</div><div class="list">${items.map((x) => x.g ? filRow(x.g) : interRow(x.e, S.data)).join("")}</div>`;
   return html + `</div>`;
 }
 

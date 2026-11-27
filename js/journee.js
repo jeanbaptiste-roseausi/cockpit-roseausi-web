@@ -1,7 +1,9 @@
-// Vues « Ma journée » et « Vue d'ensemble » (lot 5a, 26/11/2026). Données du miroir Notion seulement,
-// calculées par la fonction journee ; rien d'inventé : l'agenda et les mails restent « à venir » tant que
-// l'accès Google n'est pas donné. Gestes : terminer une tâche, changer son échéance (fonction todo).
-import { journeeApi, todoApi } from "./api.js";
+// Vues « Ma journée » et « Vue d'ensemble » (lot 5a, 26/11/2026). Données du miroir Notion, calculées par la
+// fonction journee. Lot 5b : rendez-vous (Google Agenda) et mails sans réponse (Gmail), lus par la fonction
+// google et chargés à part : si Google ne répond pas, le reste de Ma journée s'affiche quand même.
+// Gestes : terminer une tâche, changer son échéance (fonction todo).
+import { journeeApi, todoApi, googleApi } from "./api.js";
+import { gread, gstate, gsrc, rdvRow, filRow, jourLabel } from "./google.js";
 import { $, esc, ic, fd, toast, taSpan, syncOf, syncSpan, staleBanner, chip } from "./ui.js";
 
 const JOURS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
@@ -25,7 +27,7 @@ export const journeeView = {
   async mount(container) { jHost = container; renderJ(); await loadJ(!!J.data); },
   open() {},
   close() {},
-  reload: () => loadJ(true),
+  reload: () => { loadJ(true); gread("agenda", googleApi.agenda, renderJ, { frais: true }); gread("a-traiter", googleApi.aTraiter, renderJ, { frais: true }); },
 };
 
 async function loadJ(silent = false) {
@@ -77,7 +79,11 @@ function renderJ() {
   const briefLine = b ? `Brief ${b.date === d.date ? "de " + hm(b.cree) : "du " + esc(fd(b.date)) + ", pas encore de brief aujourd'hui"} · <a class="lnk" href="${esc(b.url)}" target="_blank" rel="noopener">Ouvrir le brief dans Notion</a>` : "Aucun brief du matin dans le Journal de bord";
   const j = d.jour;
   const opened = d.voyants.find((v) => v.id === J.open && v.niveau !== "vert");
-  const agenda = d.aVenir.find((x) => x.id === "agenda"), mails = d.aVenir.find((x) => x.id === "mails");
+  // Lot 5b : agenda et mails, chacun avec sa source et son heure ; une panne de Google reste dans son bloc.
+  const ag = gread("agenda", googleApi.agenda, renderJ), ml = gread("a-traiter", googleApi.aTraiter, renderJ);
+  const agSt = gstate(ag, { quoi: "Google Agenda" }), mlSt = gstate(ml, { quoi: "Gmail" });
+  const prochain = ag.data?.rendezVous.find((r) => !r.journee && r.jour === d.date && Date.parse(r.fin || r.debut) > Date.now());
+  const parJour = ag.data ? ag.data.jours.map((j) => [j, ag.data.rendezVous.filter((r) => r.jour === j)]) : [];
   jHost.innerHTML = head + `<p>${briefLine} · ${syncSpan(sy)}${J.loading ? ", mise à jour…" : ""}</p></section>
   ${staleBanner(sy)}
   <section class="voyants" aria-label="Voyants">${d.voyants.map(voyant).join("")}</section>
@@ -86,7 +92,7 @@ function renderJ() {
     <div class="list">${opened.items.map((x) => opened.id === "budget" ? miniMission(x) : miniTask(d, x)).join("")}</div></section>` : ""}
   <section class="dayprog"><div class="dp1"><div class="dpl"><b>Ta journée, ${j.faites} sur ${j.total} faite${j.faites > 1 ? "s" : ""}</b><span>reste environ ${fmtMin(j.resteMin)} · ${j.enRetard} en retard, ${j.duJour} du jour</span></div>
     <div class="gauge"><i style="width:${j.total ? Math.round(j.faites / j.total * 100) : 0}%"></i></div></div>
-    <div class="dpnext soon-box"><span class="small muted">${esc(agenda.titre)}</span><b>${esc(agenda.raison)}</b></div></section>
+    <div class="dpnext"><span class="small muted">Prochain rendez-vous</span>${agSt ? `<b class="small">${ag.error ? (ag.error.code === "google_non_relie" ? "Google n'est pas relié" : "Agenda indisponible") : "Lecture de l'agenda…"}</b>` : prochain ? `<b>${esc(prochain.titre)}</b><span class="small">${esc(new Date(prochain.debut).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" }).replace(":", " h "))}${prochain.fiches[0] ? " · " + esc(prochain.fiches[0].nom) : ""}</span>` : `<b class="small">Plus de rendez-vous aujourd'hui</b>`}</div></section>
   <div class="daygrid">
     <div class="daymain">
       <section class="card"><div class="card-h"><h2>Tes priorités</h2><span class="count">${d.priorites.length}</span></div>
@@ -104,8 +110,14 @@ function renderJ() {
         <p class="small muted" style="margin-top:6px">${esc(d.regles.relances)}${d.pistesSansTache ? ` ${d.pistesSansTache} pistes actives n'ont aucune tâche ouverte : <a class="lnk" href="#/pistes">Prospection</a>.` : ""}</p></section>
       <section class="card daycard"><div class="card-h"><h2>Prêtes à relire</h2><span class="count">${d.relire.length}</span></div>
         <div class="list">${d.relire.map((t) => miniTask(d, t)).join("") || `<p class="empty">Rien à relire.</p>`}</div></section>
-      <section class="card daycard soon-card"><div class="card-h"><h2>${esc(agenda.titre)}</h2><span class="chip dash">À venir</span></div><p class="small">${esc(agenda.raison)}</p><p class="small muted">Source prévue, ${esc(agenda.source)}. Rien n'est affiché à la place.</p></section>
-      <section class="card daycard soon-card"><div class="card-h"><h2>${esc(mails.titre)}</h2><span class="chip dash">À venir</span></div><p class="small">${esc(mails.raison)}</p><p class="small muted">Source prévue, ${esc(mails.source)}. Rien n'est affiché à la place.</p></section>
+      <section class="card daycard gcard" aria-label="Rendez-vous"><div class="card-h"><h2>Rendez-vous</h2>${ag.data ? `<span class="count">${ag.data.rendezVous.length}</span>` : ""}</div>
+        ${agSt ?? `<p class="small muted" style="margin-bottom:4px">Aujourd'hui et les deux jours suivants. ${gsrc(ag.data)}</p>
+          ${parJour.map(([j, l]) => `<h3 class="lane">${esc(jourLabel(j, d.date))} <small>${l.length || "aucun"}</small></h3>${l.length ? `<div class="list">${l.map(rdvRow).join("")}</div>` : ""}`).join("")}
+          <details class="more"><summary>Règle des liens</summary><p class="small muted">${esc(ag.data.regle)}</p></details>`}</section>
+      <section class="card daycard gcard" aria-label="Mails sans réponse"><div class="card-h"><h2>Mails sans réponse</h2>${ml.data ? `<span class="count">${ml.data.fils.length}</span>` : ""}<a class="lnk" href="#/a-traiter">À traiter</a></div>
+        ${mlSt ?? `<p class="small muted" style="margin-bottom:4px">Depuis deux jours ouvrés. ${gsrc(ml.data)}</p>
+          <div class="list">${ml.data.fils.slice(0, 3).map((f) => filRow(f, { attente: true })).join("") || `<p class="empty">Aucun mail en attente.</p>`}</div>
+          ${ml.data.fils.length > 3 ? `<a class="lnk" href="#/a-traiter">Voir les ${ml.data.fils.length - 3} autres</a>` : ""}`}</section>
     </div>
   </div>`;
 }

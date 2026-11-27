@@ -187,3 +187,20 @@ export const journalApi = {
   bloc: (id, bloc) => call("journal", `/${id}/contenu/${bloc}`),
   initiatives: () => call("journal", "/initiatives"),
 };
+
+// Lot 5b : liaison Google (google-auth) et lectures Gmail et Agenda (google), chargées à part de chaque bloc :
+// une panne de Google n'empêche pas le reste de la page de s'afficher.
+export const googleAuthApi = {
+  etat: () => call("google-auth", "/etat"),
+  debut: (retour) => call("google-auth", "/debut", { method: "POST", body: { retour } }),
+  delier: () => call("google-auth", "/delier", { method: "POST", body: {} }),
+};
+export const googleApi = {
+  agenda: (frais = false) => call("google", `/agenda${frais ? "?frais=1" : ""}`),
+  aTraiter: (frais = false) => call("google", `/a-traiter${frais ? "?frais=1" : ""}`),
+  contact: (id) => call("google", `/echanges?contact=${encodeURIComponent(id)}`),
+  journal: (depuis) => call("google", `/echanges${depuis ? `?depuis=${encodeURIComponent(depuis)}` : ""}`),
+  // Rédaction (27/11/2026) : opérations internes, sans bouton dans l'interface (livrables à la demande, essai réel).
+  creerBrouillon: (b) => call("google", "/brouillons", { method: "POST", body: b }),
+  envoyerBrouillon: (id) => call("google", `/brouillons/${encodeURIComponent(id)}/envoyer`, { method: "POST", body: {} }),
+};

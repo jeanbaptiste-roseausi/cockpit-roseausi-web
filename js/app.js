@@ -2,7 +2,8 @@
 // Adresses : #/contacts, #/contacts/<id>, #/todo, #/todo/<id>, #/todo/new, #/todo/new/<id du contact>,
 // #/contacts/new, #/contacts/new/piste/<id de la piste> (création d'un contact, 26/11/2026),
 // #/todo/new/projet/<id du projet>, #/todo/new/piste/<id de la piste> (lot 2, suite), #/projets, #/projets/<id>, #/pistes, #/pistes/<id> (lot 2), #/reseau (lot 2),
-// #/journee (accueil), #/ensemble, #/journal, #/journal/<id> (lot 5a).
+// #/journee (accueil), #/ensemble, #/journal, #/journal/<id> (lot 5a), #/a-traiter, #/reglages (lot 5b ; retour de Google
+// en ?google=<issue>#/reglages).
 import { onAuth, sendMagicLink, signOut, isAllowed, currentSession, consumeUrlTokens } from "./session.js";
 import { contactsView, bindContactEvents, bindDrawerEvents, bindNewContactEvents } from "./contacts.js";
 import { todoView, bindTodoEvents, bindTodoDrawerEvents } from "./todo.js";
@@ -11,6 +12,7 @@ import { pistesView, bindPistesEvents, bindPistesDrawerEvents } from "./pistes.j
 import { reseauView, bindReseauEvents } from "./reseau.js";
 import { journeeView, ensembleView, bindJourneeEvents } from "./journee.js";
 import { journalView, bindJournalEvents, bindJournalDrawerEvents } from "./journal.js";
+import { aTraiterView, reglagesView, bindGoogleEvents, lireIssueGoogle } from "./google.js";
 import { mountSearch } from "./search.js";
 import { $, esc, ic, tickSync, toast, bindNotes } from "./ui.js";
 import { miroirApi, todoApi, pistesApi } from "./api.js";
@@ -19,11 +21,14 @@ import { bindAgent, basculerAgent, allerAuFil, vueAgent } from "./agent.js";
 // Vues disponibles. Menu aligné sur l'artefact « Pilotage RoseauSI », version 1795691780-62c5
 // (poc/pilotage-2026-11-26.html) : Ma journée, Vue d'ensemble, Pistes, Contacts, Journal, Projets, Actions.
 // L'artefact n'a plus d'entrée Réseau ni Mails (son entrée Contacts regroupe contacts et réseau) : ici Réseau
-// reste une vue à part, juste après Contacts, et Mails reste en grisé « bientôt » à la fin.
-const VIEWS = [journeeView, ensembleView, pistesView, contactsView, reseauView, journalView, projetsView, todoView];
+// reste une vue à part, juste après Contacts.
+// Lot 5b : À traiter (file unique, mails sans réponse compris, pas encore maquettée dans l'artefact) après Ma
+// journée, et Réglages (liaison Google) en dernier. L'entrée grisée « Mails » est retirée : les mails sont dans
+// À traiter, Ma journée, le Journal et la fiche Contact.
+const VIEWS = [journeeView, aTraiterView, ensembleView, pistesView, contactsView, reseauView, journalView, projetsView, todoView, reglagesView];
 // Téléphone : quatre onglets en bas (maquette, MOB_TABS) et « Plus » pour les autres vues.
 const MOB_TABS = ["journee", "todo", "pistes", "contacts"];
-const SOON = [{ id: "mails", label: "Mails", icon: "mail" }];
+const SOON = [];
 
 // Pastilles du menu, mêmes règles que l'artefact (fonction badges) :
 //   Actions, rouge : tâches ouvertes dont l'échéance est passée (avant aujourd'hui, Paris) ;
@@ -63,7 +68,7 @@ function shell() {
   const soon = (v) => `<li><button disabled title="Prochain jalon">${ic(v.icon)}<span class="nl">${esc(v.label)}</span><span class="soon">bientôt</span></button></li>`;
   $("#app").innerHTML = `
     <aside id="side">
-      <div class="brand"><div class="wm">RoseauSI</div><div class="brand-sub">Cockpit de pilotage</div><span class="poc-tag">Lot 3 bis</span></div>
+      <div class="brand"><div class="wm">RoseauSI</div><div class="brand-sub">Cockpit de pilotage</div><span class="poc-tag">Lot 5b</span></div>
       <ul class="nav">${VIEWS.map((v) => nav(v, v === current)).join("")}${SOON.map(soon).join("")}</ul>
       <div class="side-foot"><span>Connecté : <b>${esc(session?.user?.email)}</b></span>
         <div class="side-row"><button class="side-btn" data-act="reload">${ic("refresh", "ic-sm")}Actualiser</button><button class="side-btn" data-act="logout">${ic("logout", "ic-sm")}Déconnexion</button></div></div>
@@ -223,6 +228,7 @@ bindReseauEvents($("#app"));
 bindJourneeEvents($("#app"));
 bindJournalEvents($("#app"));
 bindJournalDrawerEvents($("#dr-body"));
+bindGoogleEvents($("#app"));
 bindNotes($("#dr-side"));
 bindAgent($("#dr-side"));
 // Lot 3 : l'agent (ou une annulation) a écrit dans Notion : la fiche ouverte et la liste sont relues.
@@ -244,6 +250,9 @@ if (err) {
     : "Lien de connexion invalide, demande-en un nouveau.";
   loginScreen(pendingMsg);
 }
+
+// Lot 5b : issue du retour de Google (relié, refus, autre compte…), lue une fois puis retirée de l'adresse.
+lireIssueGoogle();
 
 onAuth((s) => { applySession(s); });
 // Lien d'invitation (jetons dans l'adresse) d'abord, sinon session déjà enregistrée.

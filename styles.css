@@ -978,6 +978,20 @@ body.agp-ancre .app { padding-right: calc(var(--agp-w) + 32px); }
 .ag-m.bot.arrete { border-style: dashed; }
 .ag-form .ag-foot [data-ag-arreter] { min-width: 96px; }
 
+/* Lot 5b : blocs Google (source et heure, liaison, rendez-vous, fils Gmail) */
+.gsrc { font-size: 12px; color: var(--ink-subtle); }
+.gnote { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; padding: 10px 12px; border-radius: 12px; border: 1.5px dashed var(--line-dashed); background: var(--surface); overflow-wrap: anywhere; }
+.gnote > span { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.gnote.warn { border-style: solid; border-color: var(--st-amber); background: var(--st-amber-bg); }
+.rdv-h { flex: none; width: 52px; font: 600 14px/1.2 var(--font-head); color: var(--teal); display: flex; flex-direction: column; font-variant-numeric: tabular-nums; }
+.rdv-h small { font: 400 12px var(--font-body); color: var(--ink-muted); }
+.ifmt.sm.gm { background: var(--surface); color: var(--teal-strong); border: 1.5px solid var(--line); }
+.glist { margin: 4px 0 10px 18px; font-size: 14px; }
+.glist code, .card code { font-size: 12px; overflow-wrap: anywhere; }
+.gfil .rm, .rdv .rm { min-width: 0; }
+.gfil .rt a, .rdv .rt a { overflow-wrap: anywhere; }
+#g-ret { width: 100%; font-size: 13px; }
+
 /* Fiches compactes (27/11/2026, artefact 1795796345-bfec) : bande de propriétés sous le titre, puis le texte d'abord. */
 .cbody > .ch { display: none; }
 .cbody > .sh:first-child, .cbody > .ch + .sh, .cbody > .nextline:first-child { margin-top: 0; }
