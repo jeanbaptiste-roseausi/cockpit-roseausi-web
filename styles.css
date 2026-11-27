@@ -1079,3 +1079,27 @@ a.chip.pp:hover, button.chip.pp:hover { border-color: var(--teal); }
 .notes-pane .np-in { max-height: none; overflow: visible; padding: 12px 14px; }
 .notes-pane textarea.mn-edit { min-height: 220px; }
 .notes-pane.en-bas { margin-top: 8px; }
+/* ---------------- Livrables à la demande (27/11/2026) : carte d'un mail rédigé par l'agent ----------------
+   Destinataires, objet, texte complet ; Envoyer, Ouvrir dans Gmail, Modifier ; Copier pour la boîte P&C ;
+   pendant les 10 secondes après Envoyer, le compte à rebours et Annuler l'envoi. */
+.ag-mail { margin: 8px 0; border: 1.5px solid var(--line); border-radius: 12px; background: var(--surface); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ag-mail-h { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.ag-mail-h .ic { color: var(--teal-strong); }
+.ag-mail-m { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; font-size: 13.5px; }
+.ag-mail-m dt { color: var(--ink-muted); }
+.ag-mail-m dd { margin: 0; overflow-wrap: anywhere; min-width: 0; }
+.ag-mail-t { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14.5px; line-height: 1.55; max-height: 320px; overflow: auto; padding: 10px 12px; border-radius: 10px; background: var(--teal-25); }
+.ag-mail-f { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ag-mail-cd { font-weight: 700; color: var(--teal-strong); font-variant-numeric: tabular-nums; margin-right: 4px; }
+.ag-mail.s-envoi_programme { border-color: var(--teal); }
+.ag-mail.s-envoye { border-style: dashed; }
+.ag-mail.s-envoye .ag-mail-t { max-height: 140px; }
+.ag-mail-motif, .ag-mail-err { display: flex; gap: 6px; align-items: flex-start; margin: 0; }
+.ag-mail-err { color: var(--crit, #b04040); }
+.ag-mail-old { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+@media (max-width: 900px) { .ag-mail-t { max-height: 260px; font-size: 15px; } .ag-mail-f .btn { min-height: 40px; } }
+.ag-acts-fold { margin: 2px 0 6px; font-size: 13px; }
+.ag-acts-fold summary { cursor: pointer; color: var(--ink-muted); font-weight: 700; list-style: none; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; }
+.ag-acts-fold summary::-webkit-details-marker { display: none; }
+.ag-acts-fold summary::before { content: ""; border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform .15s; }
+.ag-acts-fold[open] summary::before { transform: rotate(90deg); }

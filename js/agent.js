@@ -18,13 +18,18 @@
 // fenêtre flottante déplaçable et redimensionnable. Sur téléphone, la fenêtre devient un panneau plein écran
 // qu'on ferme en le tirant vers le bas. Le fil reste le même d'un mode à l'autre (état gardé ici, par fil).
 // L'agent écrit par la fonction serveur « agent » ; la page ne voit jamais la clé de l'API.
+//
+// Livrables à la demande (27/11/2026) : un mail rédigé par l'agent s'affiche en carte (destinataires, objet, texte
+// complet) avec Envoyer, Ouvrir dans Gmail et Modifier ; Copier pour la boîte Passerelles et Compétences. Envoyer
+// laisse 10 secondes pour Annuler l'envoi, puis la page demande le départ (le serveur relit le brouillon dans Gmail et
+// l'envoie tel qu'il est). Rien ne part sans ce clic, ou sans « envoie » écrit par Jean-Baptiste dans le fil.
 import { agentApi } from "./api.js";
 import { $, esc, ic, fd, toast, setAgentHook } from "./ui.js";
 
 const TYPES = {
   question: { l: "Question", ic: "info", ph: "Pose ta question. L'agent répond sans rien modifier." },
   remarque: { l: "Remarque", ic: "note", ph: "Une précision ou un changement. L'agent le range et te montre ce qui a changé." },
-  livrable: { l: "Livrable", ic: "book", ph: "Décris le livrable voulu. La demande est enregistrée, traitée au lot 4." },
+  livrable: { l: "Livrable", ic: "book", ph: "« Rédige le mail de… » : l'agent rédige tout de suite. « Prépare les éléments… » pour seulement les poser, « Rédige et envoie… » pour envoyer." },
 };
 const SUGG = {
   tache: ["Où en est cette tâche ?", "Replanifie-la à vendredi", "Qu'est-ce qui bloque et que faut-il faire ensuite ?"],
@@ -231,14 +236,97 @@ function groupeHTML(g, s) {
 
 function messageHTML(e, s) {
   if (e.auteur === "jb") {
-    return `<div class="ag-m me"><span class="it">${esc(TYPES[e.type_message]?.l ?? "")}${e.ecran ? ` · ${esc(e.ecran)}` : ""}</span><span class="ag-txt">${esc(e.texte)}</span>${e.type_message === "livrable" ? `<span class="ag-lot4">${ic("book", "ic-sm")}Enregistrée, traitée au lot 4</span>` : ""}<span class="ag-when">${esc(heure(e.cree_le))}</span></div>`;
+    return `<div class="ag-m me"><span class="it">${esc(TYPES[e.type_message]?.l ?? "")}${e.ecran ? ` · ${esc(e.ecran)}` : ""}</span><span class="ag-txt">${esc(e.texte)}</span>${e.type_message === "livrable" && e.statut === "lot4" ? `<span class="ag-lot4">${ic("book", "ic-sm")}Enregistrée avant les livrables à la demande</span>` : ""}<span class="ag-when">${esc(heure(e.cree_le))}</span></div>`;
   }
   if (e.auteur === "note") return `<p class="ag-note ${e.statut ? "n-" + esc(e.statut) : ""}">${esc(e.texte)}</p>`;
-  const acts = e.actions?.length ? `<ul class="ag-acts">${e.actions.map(actionHTML).join("")}</ul>` : "";
+  const autres = (e.actions || []).filter((a) => !(a.genre === "mail" && a.statut !== "refusee"));
+  const cartes = (e.actions || []).filter((a) => a.genre === "mail" && a.statut !== "refusee").map(mailHTML).join("");
+  const liste = autres.length ? `<ul class="ag-acts">${autres.map(actionHTML).join("")}</ul>` : "";
+  // Avec un mail rédigé, les écritures dans la tâche (Livrables, Brouillon Gmail, État, Récap) sont repliées sous la carte.
+  const acts = liste && (cartes || e.statut === "mail_envoye") ? `<details class="ag-acts-fold"><summary>${autres.length} changement${autres.length > 1 ? "s" : ""} dans la tâche, avec Annuler</summary>${liste}</details>` : liste;
   const grps = (e.groupes || []).map((g) => groupeHTML(g, s)).join("");
   const cost = e.modele ? `<span class="ag-when">${esc(heure(e.cree_le))} · ${nb(jetons(e))} jetons · ${usdFin(e.cout_usd)}</span>` : `<span class="ag-when">${esc(heure(e.cree_le))}</span>`;
-  return `<div class="ag-m bot ${e.statut === "erreur" ? "err" : ""} ${e.statut === "arrete" ? "arrete" : ""} ${grps ? "wide" : ""}">${etapesRepliees(ETAPES.get(e.id))}${texte(e.texte)}${acts}${grps}${cost}</div>`;
+  return `<div class="ag-m bot ${e.statut === "erreur" ? "err" : ""} ${e.statut === "arrete" ? "arrete" : ""} ${grps ? "wide" : ""}">${etapesRepliees(ETAPES.get(e.id))}${texte(e.texte)}${cartes}${acts}${grps}${cost}</div>`;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Carte d'un mail rédigé (livrables, 27/11/2026)
+
+const memeFiche = (id) => String(cible().id || "").replace(/-/g, "") === String(id || "").replace(/-/g, "");
+const hm = (iso) => new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }).replace(":", "h");
+const restant = (a) => Math.max(0, Math.ceil((Date.parse(a.envoi_le || 0) - Date.now()) / 1000));
+function mailHTML(a) {
+  const n = a.nouvelle || {};
+  const pc = n.mode === "copier";
+  if (a.statut === "remplace") return `<p class="ag-mail-old small muted">${ic("mail", "ic-sm")}Version ${esc(n.version || 1)} de « ${esc(n.objet || "")} », remplacée par la suivante (même brouillon).</p>`;
+  const tete = a.statut === "envoye" ? `Envoyé à ${esc(hm(n.envoi?.le || a.appliquee_le || a.cree_le))}`
+    : pc ? "Texte à copier, boîte Passerelles et Compétences" : a.statut === "envoi_programme" ? "Envoi programmé" : a.statut === "envoi_en_cours" ? "Envoi en cours" : "Brouillon Gmail";
+  const lienG = a.statut === "envoye" ? n.envoi?.lien : n.brouillon?.lien;
+  const ouvrir = lienG ? `<a class="btn sm" href="${esc(lienG)}" target="_blank" rel="noopener">${ic("ext", "ic-sm")}Ouvrir dans Gmail</a>` : "";
+  const modifier = `<button class="btn sm ghost" type="button" data-mail-modifier="${a.id}">${ic("pen", "ic-sm")}Modifier</button>`;
+  const boutons = a.statut === "brouillon" ? `<button class="btn sm pri" type="button" data-mail-envoyer="${a.id}">${ic("mail", "ic-sm")}Envoyer</button>${ouvrir}${modifier}`
+    : a.statut === "copier" ? `<button class="btn sm pri" type="button" data-mail-copier="${a.id}">${ic("check", "ic-sm")}Copier</button>${modifier}`
+    : a.statut === "envoi_programme" ? `<span class="ag-mail-cd" data-mail-cd="${a.id}" aria-live="polite">Départ dans ${restant(a)} s</span><button class="btn sm pri" type="button" data-mail-annuler="${a.id}">${ic("close", "ic-sm")}Annuler l'envoi</button>`
+    : a.statut === "envoi_en_cours" ? `<span class="ag-mail-cd">Envoi…</span>`
+    : a.statut === "envoye" ? `<span class="chip c-good">${ic("check", "ic-sm")}Envoyé</span>${ouvrir}` : "";
+  const dest = (l) => (l || []).map(esc).join(", ");
+  return `<div class="ag-mail s-${esc(a.statut)}" data-mail="${a.id}">
+    <div class="ag-mail-h">${ic("mail", "ic-sm")}<b>${tete}</b>${n.version > 1 ? `<span class="chip">version ${esc(n.version)}</span>` : ""}${a.cible_id && !memeFiche(a.cible_id) ? `<span class="small muted">· ${lien(a)}</span>` : ""}</div>
+    <dl class="ag-mail-m"><dt>À</dt><dd>${dest(n.to)}</dd>${(n.cc || []).length ? `<dt>Cc</dt><dd>${dest(n.cc)}</dd>` : ""}<dt>Objet</dt><dd>${esc(n.objet || "")}</dd></dl>
+    <div class="ag-mail-t" tabindex="0">${esc(n.corps || "")}</div>
+    ${a.statut === "brouillon" && n.brouillon?.signature ? `<p class="small muted">La signature est ajoutée dans Gmail. Si tu corriges le brouillon dans Gmail, Envoyer part de ta version.</p>` : ""}
+    ${pc ? `<p class="small muted">Pas de brouillon Gmail pour ce domaine. Copie le texte dans ta boîte passerellesetcompetences.org.</p>` : ""}
+    ${n.motif && a.statut !== "envoye" ? `<p class="small ag-mail-motif">${ic("info", "ic-sm")}Pas d'envoi direct : ${esc(n.motif)}.</p>` : ""}
+    ${a.erreur ? `<p class="small ag-mail-err">${ic("alert", "ic-sm")}${esc(a.erreur)}</p>` : ""}
+    <div class="ag-mail-f">${boutons}</div></div>`;
+}
+
+/** Départs programmés : un minuteur par mail, la page demande le départ au terme des 10 secondes. */
+const DEPARTS = new Map();
+function suivreEnvois(c, s) {
+  const prog = (Array.isArray(s.fil) ? s.fil : []).flatMap((e) => e.actions || []).filter((a) => a.genre === "mail" && a.statut === "envoi_programme");
+  for (const a of prog) {
+    if (DEPARTS.has(a.id)) continue;
+    const t = setTimeout(() => partirMail(c, a.id), Math.max(0, Date.parse(a.envoi_le) - Date.now()) + 150);
+    DEPARTS.set(a.id, t);
+  }
+  if (prog.length && !TIC) TIC = setInterval(tic, 500);
+}
+let TIC = null;
+function tic() {
+  const els = document.querySelectorAll("[data-mail-cd]");
+  if (!els.length && !DEPARTS.size) { clearInterval(TIC); TIC = null; return; }
+  for (const el of els) {
+    const s = st(cible().key);
+    const a = (Array.isArray(s.fil) ? s.fil : []).flatMap((e) => e.actions || []).find((x) => x.id === Number(el.dataset.mailCd));
+    if (a?.envoi_le) el.textContent = `Départ dans ${restant(a)} s`;
+  }
+}
+async function gesteMail(geste, n) {
+  const c = cible(), s = st(c.key);
+  try {
+    const r = await agentApi.mail(n, geste);
+    s.fil = r.fil; s.info = r; s.err = "";
+    if (geste === "annuler-envoi") { clearTimeout(DEPARTS.get(n)); DEPARTS.delete(n); toast("Envoi annulé, rien n'est parti"); }
+  } catch (e) { toast(e.message, "err"); }
+  if (cible().key === c.key) paint();
+}
+async function partirMail(c, n, essai = 0) {
+  const s = st(c.key);
+  try {
+    const r = await agentApi.mail(n, "partir");
+    s.fil = r.fil; s.info = r;
+    toast("Mail envoyé"); ficheModifiee();
+  } catch (e) {
+    // Un peu tôt (horloges) : nouvel essai une seconde plus tard ; sinon le fil dit ce qui s'est passé.
+    if (e.status === 425 && essai < 5) { setTimeout(() => partirMail(c, n, essai + 1), 1000); return; }
+    if (e.code !== "annule") toast(e.message, "err");
+    try { const r = c.type === "ecran" ? await agentApi.filEcran(c.view) : await agentApi.fil(c.type, c.id); s.fil = r.fil; } catch { /* fil relu plus tard */ }
+  }
+  DEPARTS.delete(n);
+  if (cible().key === c.key) paint();
+}
+function trouverMail(s, n) { return (Array.isArray(s.fil) ? s.fil : []).flatMap((e) => e.actions || []).find((a) => a.id === n); }
 
 /** Étapes : en direct pendant l'échange (la dernière en cours clignote), repliées après la réponse. */
 const etapeLi = (e, cur) => `<li class="${e.ecrit ? "ok" : ""}${e.fin && e.ok === false ? " ko" : ""}${cur ? " cur" : ""}"><i aria-hidden="true"></i><span>${esc(e.t || "Étape de l'agent")}</span></li>`;
@@ -373,6 +461,8 @@ function paint(keepFocus = false) {
     if (etaitCache || !geomFaite) placer();
   }
   for (const b of document.querySelectorAll("[data-act='agent']")) b.setAttribute("aria-pressed", String(montrer || ou === "side"));
+  // Mails programmés (livrables) : le départ est demandé au terme des 10 secondes.
+  suivreEnvois(c, st(c.key));
   // La fiche se pose sur la zone de contenu (drFit) : un panneau ancré qui apparaît ou disparaît la change.
   window.dispatchEvent(new Event("cockpit:agent-place"));
 }
@@ -707,6 +797,29 @@ function bindFil(root) {
     if (cl) { cloreFil(cl.dataset.agClore === "neuf"); return; }
     if (e.target.closest("[data-ag-nouveau]")) { nouveauFil(); return; }
     if (e.target.closest("[data-ag-arreter]")) { arreter(); return; }
+    const me = e.target.closest("[data-mail-envoyer]");
+    if (me) { gesteMail("envoyer", Number(me.dataset.mailEnvoyer)); return; }
+    const ma = e.target.closest("[data-mail-annuler]");
+    if (ma) { gesteMail("annuler-envoi", Number(ma.dataset.mailAnnuler)); return; }
+    const mm = e.target.closest("[data-mail-modifier]");
+    if (mm) {
+      const a = trouverMail(s, Number(mm.dataset.mailModifier));
+      s.type = "remarque"; s.draft = `Retouche du mail « ${a?.nouvelle?.objet ?? ""} » : `;
+      paint(true);
+      const ta = $("#ag-in"); if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+      return;
+    }
+    const mc = e.target.closest("[data-mail-copier]");
+    if (mc) {
+      const a = trouverMail(s, Number(mc.dataset.mailCopier));
+      const t = String(a?.nouvelle?.corps ?? "");
+      (navigator.clipboard?.writeText(t) ?? Promise.reject()).then(() => toast("Texte copié. L'objet est sur la carte.")).catch(() => {
+        const box = mc.closest(".ag-mail")?.querySelector(".ag-mail-t");
+        if (box) { const r = document.createRange(); r.selectNodeContents(box); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+        toast("Sélectionne le texte puis copie-le (Ctrl + C).", "err");
+      });
+      return;
+    }
     const an = e.target.closest("[data-ag-annuler]");
     if (an) { geste("annuler", an.dataset.agAnnuler, an.dataset.genre); return; }
     const ap = e.target.closest("[data-ag-appliquer]");

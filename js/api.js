@@ -156,6 +156,8 @@ export const agentApi = {
   clore: (type, id, neuf = false, onEtape) => callFlux("agent", `/${type}/${id}/${neuf ? "neuf" : "clore"}`, {}, onEtape),
   nouveauFil: (vue) => call("agent", `/ecran/${vue}/nouveau`, { method: "POST", body: {} }),
   arreter: (type, id) => call("agent", `/${type}/${id}/arreter`, { method: "POST", body: {} }),
+  // Livrables à la demande (27/11/2026) : mail rédigé, geste « envoyer », « annuler-envoi » ou « partir ».
+  mail: (n, geste) => call("agent", `/mail/${n}/${geste}`, { method: "POST", body: {} }),
 };
 
 // Miroir de Notion (lot M) : relecture des pages modifiées dans Notion, à la demande (Actualiser).
