@@ -37,6 +37,60 @@ export async function call(fn, path = "", { method = "GET", body } = {}) {
   return data;
 }
 
+/**
+ * Appel avec étapes en direct (27/11/2026) : la fonction agent renvoie une ligne JSON par étape, puis la réponse.
+ * onEtape reçoit chaque étape ; la promesse rend la réponse habituelle. Une fonction qui répond encore en JSON
+ * (ancienne version, demande de livrable, erreur de validation) est lue comme avant.
+ */
+export async function callFlux(fn, path, body, onEtape) {
+  const session = await currentSession();
+  if (!session) throw new ApiError(401, "no_session", "Connexion requise.");
+  let res;
+  try {
+    res = await fetch(`${SUPABASE_URL}/functions/v1/${fn}${path}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, apikey: SUPABASE_PUBLISHABLE_KEY, "Content-Type": "application/json", Accept: "application/x-ndjson, application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError(0, "network", "Réseau indisponible, vérifie ta connexion.");
+  }
+  if (!(res.headers.get("content-type") || "").includes("ndjson") || !res.body) {
+    let data = null;
+    try { data = await res.json(); } catch { /* réponse vide */ }
+    if (!res.ok) {
+      const err = data?.error ?? {};
+      if (res.status === 401) await signOut();
+      throw new ApiError(res.status, err.code ?? "http", err.message ?? `Erreur ${res.status}`, err.details);
+    }
+    return data;
+  }
+  const lecteur = res.body.getReader(), dec = new TextDecoder();
+  let reste = "", fin = null, erreur = null;
+  const ligne = (l) => {
+    if (!l.trim()) return;
+    let o; try { o = JSON.parse(l); } catch { return; }
+    if (o.etape) { try { onEtape?.(o.etape); } catch { /* affichage seulement */ } }
+    else if (o.fin) fin = o.fin;
+    else if (o.erreur) erreur = o.erreur;
+  };
+  try {
+    for (;;) {
+      const { value, done } = await lecteur.read();
+      if (done) break;
+      reste += dec.decode(value, { stream: true });
+      const l = reste.split("\n"); reste = l.pop();
+      l.forEach(ligne);
+    }
+    ligne(reste + dec.decode());
+  } catch {
+    throw new ApiError(0, "network", "La connexion a été coupée pendant l'échange. Réessaie dans un instant.");
+  }
+  if (erreur) throw new ApiError(erreur.status ?? 500, erreur.code ?? "http", erreur.message ?? "L'agent n'a pas pu répondre.");
+  if (!fin) throw new ApiError(0, "network", "La connexion a été coupée pendant l'échange. Réessaie dans un instant.");
+  return fin;
+}
+
 // Une entrée par fiche. L'agent de fiche ajoutera la sienne ici.
 export const contactsApi = {
   list: () => call("contacts"),
@@ -91,15 +145,15 @@ export const reseauApi = {
 // Lot 3 : fil Agent des fiches Contact et Tâche (type : "contact" ou "tache").
 export const agentApi = {
   fil: (type, id) => call("agent", `/${type}/${id}`),
-  envoyer: (type, id, typeMessage, texte) => call("agent", `/${type}/${id}`, { method: "POST", body: { type: typeMessage, texte } }),
+  envoyer: (type, id, typeMessage, texte, onEtape) => callFlux("agent", `/${type}/${id}`, { type: typeMessage, texte }, onEtape),
   annuler: (n) => call("agent", `/action/${n}/annuler`, { method: "POST", body: {} }),
   appliquer: (n) => call("agent", `/action/${n}/appliquer`, { method: "POST", body: {} }),
   // Agent d'écran (lot 3 bis ; un fil par écran depuis le 26/11/2026, soir) et gestes groupés.
   filEcran: (vue) => call("agent", `/ecran/${vue}`),
-  envoyerEcran: (vue, typeMessage, texte, ecran) => call("agent", `/ecran/${vue}`, { method: "POST", body: { type: typeMessage, texte, ecran } }),
+  envoyerEcran: (vue, typeMessage, texte, ecran, onEtape) => callFlux("agent", `/ecran/${vue}`, { type: typeMessage, texte, ecran }, onEtape),
   groupe: (n, geste, body = {}) => call("agent", `/groupe/${n}/${geste}`, { method: "POST", body }),
   // Mémoire dans la fiche (27/11/2026) : Clore et Agent neuf (fiche), Nouveau fil (écran), Arrêter (les deux).
-  clore: (type, id, neuf = false) => call("agent", `/${type}/${id}/${neuf ? "neuf" : "clore"}`, { method: "POST", body: {} }),
+  clore: (type, id, neuf = false, onEtape) => callFlux("agent", `/${type}/${id}/${neuf ? "neuf" : "clore"}`, {}, onEtape),
   nouveauFil: (vue) => call("agent", `/ecran/${vue}/nouveau`, { method: "POST", body: {} }),
   arreter: (type, id) => call("agent", `/${type}/${id}/arreter`, { method: "POST", body: {} }),
 };

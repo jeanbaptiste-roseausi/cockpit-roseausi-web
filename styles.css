@@ -1017,3 +1017,51 @@ a.chip.pp:hover, button.chip.pp:hover { border-color: var(--teal); }
 .pkpis.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @container drawer (max-width: 900px) { .pkpis.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .chip.pp { padding: 5px 11px; } .props { gap: 6px 5px; } }
+
+/* ---------------- Fil Agent comme un chat, agent masquable, onglet Notes (27/11/2026, artefact design) ----------------
+   Envoi : le message s'affiche tout de suite, suivi des étapes de l'agent en direct (flux de la fonction agent),
+   repliées sous « N étapes » une fois la réponse arrivée. Ordinateur : l'agent de la fiche se masque (la fiche
+   prend toute la largeur) ou passe en fenêtre flottante sans colonne réservée ; Mes notes devient l'onglet Notes. */
+.ag-think { display: flex; align-items: center; gap: 8px; color: var(--ink-muted); margin: 0; }
+.ag-dots { display: inline-flex; gap: 3px; }
+.ag-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--teal); animation: agdot 1.2s infinite ease-in-out; }
+.ag-dots i:nth-child(2) { animation-delay: .15s; }
+.ag-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes agdot { 0%, 80%, 100% { opacity: .25; transform: none; } 40% { opacity: 1; transform: translateY(-2px); } }
+.ag-live-steps, .ag-steps ol { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--ink-muted); }
+.ag-live-steps { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--line); }
+.ag-live-steps li, .ag-steps li { display: flex; gap: 8px; align-items: baseline; overflow-wrap: anywhere; }
+.ag-live-steps li i, .ag-steps li i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong); transform: translateY(-1px); }
+.ag-live-steps li.ok, .ag-steps li.ok { color: var(--teal-strong); font-weight: 700; }
+.ag-live-steps li.ok i, .ag-steps li.ok i { background: var(--teal-strong); }
+.ag-live-steps li.ko, .ag-steps li.ko { color: var(--crit, #b04040); }
+.ag-live-steps li.cur { color: var(--ink); }
+.ag-live-steps li.cur i { background: var(--teal); animation: agdot 1.2s infinite ease-in-out; }
+.ag-steps { margin: 0 0 8px; font-size: 13px; }
+.ag-steps summary { cursor: pointer; color: var(--ink-muted); font-weight: 700; list-style: none; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; }
+.ag-steps summary::-webkit-details-marker { display: none; }
+.ag-steps summary::before { content: ""; border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform .15s; }
+.ag-steps[open] summary::before { transform: rotate(90deg); }
+.ag-steps ol { padding: 4px 0 8px 2px; border-bottom: 1px dashed var(--line); margin-bottom: 6px; }
+@media (prefers-reduced-motion: reduce) { .ag-dots i, .ag-live-steps li.cur i { animation: none; } }
+
+/* En-tête du panneau de la fiche : Fenêtre ou Ancrer, Masquer (ordinateur seulement) */
+.ag-win { display: inline-flex; gap: 2px; flex: none; }
+.iconbtn.sm { width: 32px; height: 32px; }
+#dr-ag[aria-pressed="true"] { background: var(--teal-25); }
+@media (max-width: 900px) { .ag-win, #dr-ag { display: none !important; } }
+
+/* Agent masqué ou flottant : pas de colonne à droite, la fiche prend toute la largeur */
+#drawer.has-side.ag-off .dr-side, #drawer.has-side.ag-float .dr-side { display: none !important; }
+#drawer.ag-off #dr-seg, #drawer.ag-float #dr-seg { display: none !important; }
+#drawer.ag-off .dr-body, #drawer.ag-float .dr-body { display: flex !important; }
+
+/* Onglet Notes */
+.notes-pane { display: none; flex-direction: column; gap: 8px; min-width: 0; }
+#drawer.notes-on .notes-pane, .notes-pane.en-bas { display: flex; }
+#drawer.notes-on #dr-body > .cbody { display: none; }
+#drawer.notes-on .cnav button.on:not([data-notes-tab]) { background: none; color: var(--ink-muted); }
+#drawer.notes-on .cnav button.on:not([data-notes-tab]):hover { color: var(--ink); background: var(--teal-25); }
+.notes-pane .np-in { max-height: none; overflow: visible; padding: 12px 14px; }
+.notes-pane textarea.mn-edit { min-height: 220px; }
+.notes-pane.en-bas { margin-top: 8px; }

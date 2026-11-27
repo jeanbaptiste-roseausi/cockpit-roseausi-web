@@ -49,7 +49,8 @@ const PAQUET = 10;
 // ---------------------------------------------------------------------------------------------
 // Préférences mémorisées : mode (ancre | flottant), panneau ouvert, géométrie de la fenêtre flottante.
 const PREF_CLE = "cockpit.agent";
-const PREF = { mode: "ancre", ouvert: false, fen: null };
+// masque (27/11/2026) : agent de la fiche masqué sur ordinateur, la fiche prend toute la largeur.
+const PREF = { mode: "ancre", ouvert: false, fen: null, masque: false };
 try { Object.assign(PREF, JSON.parse(localStorage.getItem(PREF_CLE) || "{}")); } catch { /* stockage indisponible */ }
 if (!["ancre", "flottant"].includes(PREF.mode)) PREF.mode = "ancre";
 const garder = () => { try { localStorage.setItem(PREF_CLE, JSON.stringify(PREF)); } catch { /* */ } };
@@ -63,7 +64,9 @@ const ouvert = () => (tel() ? ouvertTel : !!PREF.ouvert);
 // ---------------------------------------------------------------------------------------------
 // État par fil : clé = identifiant de la fiche, ou « ecran:<vue> » pour le fil d'un écran.
 const F = new Map();
-const st = (k) => F.get(k) ?? F.set(k, { fil: null, info: null, busy: false, err: "", draft: "", type: "question", prog: "", attente: "", arret: false }).get(k);
+const st = (k) => F.get(k) ?? F.set(k, { fil: null, info: null, busy: false, err: "", draft: "", type: "question", prog: "", attente: "", arret: false, enCours: null, etapes: [] }).get(k);
+// Étapes en direct (27/11/2026) : gardées par réponse de l'agent, repliées sous « N étapes » (le temps de la session).
+const ETAPES = new Map();
 const DECOCHE = new Map(); // geste groupé → lignes décochées
 
 const drawerOuvert = () => document.body.classList.contains("dr-open") && $("#drawer")?.classList.contains("on");
@@ -80,9 +83,15 @@ function cible() {
   return { type: "ecran", key: `ecran:${view}`, view, fiche: null };
 }
 
+/** Fiche ouverte sur ordinateur, avec son agent : le bouton Agent de la fiche le masque ou l'affiche. */
+const ficheBureau = () => drawerOuvert() && !!sideHost() && !tel();
+
 /** Où va le fil : dans le panneau de la fiche (ancré, fiche ouverte), dans le panneau #agp, ou nulle part. */
 function placement(c) {
   const side = sideHost();
+  // Ordinateur, fiche ouverte (27/11/2026) : masqué, ancré dans la colonne de la fiche, ou en fenêtre flottante
+  // au-dessus de la fiche (la colonne disparaît alors, la fiche prend toute la largeur).
+  if (ficheBureau()) return PREF.masque ? null : PREF.mode === "ancre" ? "side" : "agp";
   if (drawerOuvert() && side && PREF.mode === "ancre") return "side";
   return ouvert() ? "agp" : null;
 }
@@ -228,15 +237,28 @@ function messageHTML(e, s) {
   const acts = e.actions?.length ? `<ul class="ag-acts">${e.actions.map(actionHTML).join("")}</ul>` : "";
   const grps = (e.groupes || []).map((g) => groupeHTML(g, s)).join("");
   const cost = e.modele ? `<span class="ag-when">${esc(heure(e.cree_le))} · ${nb(jetons(e))} jetons · ${usdFin(e.cout_usd)}</span>` : `<span class="ag-when">${esc(heure(e.cree_le))}</span>`;
-  return `<div class="ag-m bot ${e.statut === "erreur" ? "err" : ""} ${e.statut === "arrete" ? "arrete" : ""} ${grps ? "wide" : ""}">${texte(e.texte)}${acts}${grps}${cost}</div>`;
+  return `<div class="ag-m bot ${e.statut === "erreur" ? "err" : ""} ${e.statut === "arrete" ? "arrete" : ""} ${grps ? "wide" : ""}">${etapesRepliees(ETAPES.get(e.id))}${texte(e.texte)}${acts}${grps}${cost}</div>`;
 }
+
+/** Étapes : en direct pendant l'échange (la dernière en cours clignote), repliées après la réponse. */
+const etapeLi = (e, cur) => `<li class="${e.ecrit ? "ok" : ""}${e.fin && e.ok === false ? " ko" : ""}${cur ? " cur" : ""}"><i aria-hidden="true"></i><span>${esc(e.t || "Étape de l'agent")}</span></li>`;
+const etapesRepliees = (l) => l?.length ? `<details class="ag-steps"><summary>${l.length} étape${l.length > 1 ? "s" : ""}</summary><ol>${l.map((e) => etapeLi(e)).join("")}</ol></details>` : "";
+function liveHTML(s) {
+  const l = s.etapes || [];
+  const enCours = l.length && !l[l.length - 1].fin ? l.length - 1 : -1;
+  const msg = s.arret ? "Arrêt demandé, l'agent s'arrête au tour suivant…" : s.attente && s.attente !== "enreg" ? s.attente : s.type === "livrable" && s.attente === "enreg" ? "Enregistrement…" : "L'agent réfléchit…";
+  return `${l.length ? `<ol class="ag-live-steps">${l.map((e, k) => etapeLi(e, k === enCours)).join("")}</ol>` : ""}<p class="ag-think"><span class="ag-dots" aria-hidden="true"><i></i><i></i><i></i></span>${esc(msg)}</p>`;
+}
+/** Le message de Jean-Baptiste, affiché dès l'envoi, avant la réponse du serveur. */
+const enCoursHTML = (s) => s.enCours ? messageHTML({ auteur: "jb", type_message: s.enCours.type, texte: s.enCours.texte, ecran: s.enCours.ecran, cree_le: s.enCours.cree_le }, s) : "";
 
 const suggestions = (c) => c.type !== "ecran" ? SUGG[c.type] || SUGG.autre : SUGG[c.view] || SUGG.autre;
 
 function filHTML(c, s, ou) {
   const i = s.info;
   const flot = PREF.mode === "flottant";
-  const modeBtn = ou === "side"
+  // Ordinateur : les boutons Fenêtre et Masquer sont dans l'en-tête du panneau (ui.js) ; téléphone inchangé.
+  const modeBtn = ou === "side" && tel()
     ? `<button class="btn sm ghost ag-mode" type="button" data-ag-mode="flottant" title="Afficher le fil dans une fenêtre flottante">${ic("float", "ic-sm")}Fenêtre</button>`
     : "";
   const cumul = i ? `<span class="chip ag-cumul" title="Jetons et coût estimé ce mois, tous fils confondus. Plafond réglé côté serveur.">Ce mois ${nb(i.cumul.jetons)} jetons · ${usd(i.cumul.cout_usd)} sur ${usd(i.plafondUsd)}</span>` : "";
@@ -253,9 +275,9 @@ function filHTML(c, s, ou) {
     : `<p class="ag-intro">Un seul interlocuteur pour cette fiche. Il répond à tes questions et range tes remarques (champs, statut, replanification, tâche, contact, mise en lien). Sa mémoire est la fiche Notion elle-même, ${c.type === "contact" ? "sections Relation, Liens, Engagements en cours, Fil des échanges" : "sections État actuel, Décisions, Livrables"} et Journal de l'agent. Chaque modification s'affiche ici avec un bouton Annuler. Clore met la fiche à jour, Agent neuf repart d'un fil vide. Il ne touche jamais à Mes notes et ne supprime rien.</p>`;
   const list = s.fil === null ? `<p class="small muted">Chargement du fil…</p>`
     : s.fil === "erreur" ? `<div class="banner">${ic("alert", "ic-sm")}<span>Fil indisponible pour l'instant. <button class="lnk" data-ag-relire="1">Réessayer</button></span></div>`
-    : s.fil.length ? s.fil.map((e) => messageHTML(e, s)).join("")
+    : s.fil.length || s.enCours ? s.fil.map((e) => messageHTML(e, s)).join("")
     : `${intro}<div class="ag-sugg">${suggestions(c).map((t, n) => `<button class="chip" type="button" data-ag-sugg="${n}">${esc(t)}</button>`).join("")}</div>`;
-  const live = s.busy ? `<div class="ag-m bot live" aria-live="polite"><p class="muted">${s.arret ? "Arrêt demandé, l'agent s'arrête au tour suivant…" : s.attente || (s.type === "livrable" ? "Enregistrement…" : "L'agent réfléchit…")}</p></div>` : "";
+  const live = s.busy ? `${enCoursHTML(s)}<div class="ag-m bot live" data-ag-live aria-live="polite">${liveHTML(s)}</div>` : "";
   // Clore, Agent neuf (fiche) ou Nouveau fil (écran) : quand le fil a des messages et n'est pas occupé.
   const aDesMessages = Array.isArray(s.fil) && s.fil.some((e) => e.auteur !== "note");
   const outils = aDesMessages && !s.busy && !s.prog ? (c.type === "ecran"
@@ -285,7 +307,7 @@ function renvoiHTML() {
 // ---------------------------------------------------------------------------------------------
 // Peinture : choisit l'emplacement, puis écrit le fil sans perdre la saisie en cours.
 
-function peindreDans(el, c, ou, keepFocus) {
+function peindreDans(el, c, ou, keepFocus, avant = "") {
   const s = st(c.key);
   const ta = $("#ag-in", el);
   const foc = keepFocus || (ta && document.activeElement === ta);
@@ -293,7 +315,7 @@ function peindreDans(el, c, ou, keepFocus) {
   const l0 = $("#ag-list", el);
   const enBas = !l0 || l0.scrollTop + l0.clientHeight >= l0.scrollHeight - 40;
   const top = l0?.scrollTop ?? 0;
-  el.innerHTML = filHTML(c, s, ou);
+  el.innerHTML = avant + filHTML(c, s, ou);
   const l = $("#ag-list", el); if (l) l.scrollTop = enBas ? l.scrollHeight : top;
   const t2 = $("#ag-in", el);
   if (t2) grandir(t2);
@@ -311,8 +333,22 @@ function paint(keepFocus = false) {
   if (h) h.textContent = c.type === "ecran" ? "Agent" : "Agent de la fiche";
   if (side) {
     if (ou === "side") { peindreDans(side, c, ou, keepFocus); charger(c); }
-    else if (PREF.mode === "flottant") side.innerHTML = renvoiHTML();
+    else if (PREF.mode === "flottant" && tel()) side.innerHTML = renvoiHTML();
     else side.innerHTML = "";
+  }
+  // Ordinateur : agent masqué (la fiche prend toute la largeur) ou flottant (aucune colonne réservée).
+  const d = $("#drawer"), fb = ficheBureau();
+  d.classList.toggle("ag-off", fb && PREF.masque);
+  d.classList.toggle("ag-float", fb && !PREF.masque && PREF.mode === "flottant");
+  const da = $("#dr-ag");
+  if (da) {
+    da.hidden = !fb;
+    da.setAttribute("aria-pressed", String(fb && !PREF.masque));
+    const t = PREF.masque ? "Afficher l'agent de la fiche" : "Masquer l'agent de la fiche"; da.title = t; da.setAttribute("aria-label", t);
+  }
+  for (const b of document.querySelectorAll("#dr-side [data-ag-win='mode']")) {
+    const l = PREF.mode === "flottant" ? "Ancrer l'agent à droite" : "Détacher l'agent en fenêtre flottante";
+    b.innerHTML = ic(PREF.mode === "flottant" ? "dock" : "float", "ic-sm"); b.title = l; b.setAttribute("aria-label", l);
   }
   const montrer = ou === "agp";
   const etaitCache = agp.hidden;
@@ -330,7 +366,9 @@ function paint(keepFocus = false) {
     mb.innerHTML = ic(PREF.mode === "flottant" ? "dock" : "float");
     const lab = PREF.mode === "flottant" ? "Ancrer le panneau à droite" : "Passer en fenêtre flottante";
     mb.setAttribute("aria-label", lab); mb.title = lab;
-    peindreDans($("#agp-b"), c, ou, keepFocus);
+    // Fiche en fenêtre flottante : la carte Agent de production de la fiche suit le fil.
+    const prod = c.fiche && fb ? $("#dr-side .ag-prod")?.outerHTML ?? "" : "";
+    peindreDans($("#agp-b"), c, ou, keepFocus, prod);
     charger(c);
     if (etaitCache || !geomFaite) placer();
   }
@@ -339,13 +377,13 @@ function paint(keepFocus = false) {
   window.dispatchEvent(new Event("cockpit:agent-place"));
 }
 
-async function charger(c, force = false) {
+async function charger(c, force = false, garderErreur = false) {
   const s = st(c.key);
   if (s.fil !== null && s.fil !== "erreur" && !force) return;
   if (s.charge) return;
   s.charge = true;
-  try { const r = c.type === "ecran" ? await agentApi.filEcran(c.view) : await agentApi.fil(c.type, c.id); s.fil = r.fil; s.info = r; s.err = ""; }
-  catch (e) { if (s.fil === null) s.fil = "erreur"; s.err = e.status ? e.message : ""; }
+  try { const r = c.type === "ecran" ? await agentApi.filEcran(c.view) : await agentApi.fil(c.type, c.id); s.fil = r.fil; s.info = r; if (!garderErreur) s.err = ""; }
+  catch (e) { if (s.fil === null) s.fil = "erreur"; if (!garderErreur) s.err = e.status ? e.message : ""; }
   s.charge = false;
   if (cible().key === c.key) paint();
 }
@@ -364,27 +402,60 @@ async function envoyer() {
   const s = st(c.key);
   const t = ($("#ag-in")?.value ?? s.draft).trim();
   if (!t || s.busy) return;
-  s.busy = true; s.arret = false; s.attente = s.type === "livrable" ? "enreg" : ""; s.err = ""; s.draft = t; paint(true);
+  // Comme un chat (27/11/2026) : la saisie se vide et le message s'affiche tout de suite, suivi des étapes de
+  // l'agent au fur et à mesure. Si l'échange échoue, le texte revient dans la saisie.
+  const type = s.type, ecran = c.type === "ecran" ? ecranCourant(c) : null;
+  s.busy = true; s.arret = false; s.attente = type === "livrable" ? "enreg" : ""; s.err = ""; s.draft = "";
+  s.enCours = { texte: t, type, ecran: ecran?.titre && c.type === "ecran" ? ecran.titre : null, cree_le: new Date().toISOString() };
+  s.etapes = [];
+  if (Array.isArray(s.fil) === false) s.fil = [];
+  for (const ta of document.querySelectorAll("#ag-in")) ta.value = "";
+  paint(true);
+  const onEtape = etapeRecue(c, s);
+  let echec = false;
   try {
-    const r = c.type === "ecran" ? await agentApi.envoyerEcran(c.view, s.type, t, ecranCourant(c)) : await agentApi.envoyer(c.type, c.id, s.type, t);
-    s.fil = r.fil; s.info = r; s.draft = "";
+    const r = c.type === "ecran" ? await agentApi.envoyerEcran(c.view, type, t, ecran, onEtape) : await agentApi.envoyer(c.type, c.id, type, t, onEtape);
+    s.fil = r.fil; s.info = r;
+    if (r.reponse?.id && s.etapes.length) ETAPES.set(r.reponse.id, s.etapes.slice());
+    if (r.reponse?.statut === "erreur") echec = true;
     if (r.ecrit) ficheModifiee();
-  } catch (e) { s.err = e.message || "L'agent n'a pas pu répondre."; }
-  s.busy = false; s.arret = false; s.attente = "";
+  } catch (e) { s.err = e.message || "L'agent n'a pas pu répondre."; echec = true; }
+  // Échec : le texte revient dans la saisie (s'il n'a pas déjà été remplacé), avec son type.
+  if (echec && !s.draft) { s.draft = t; s.type = type; }
+  s.busy = false; s.arret = false; s.attente = ""; s.enCours = null; s.etapes = [];
   if (cible().key === c.key) paint(true);
+  // Le serveur a pu garder la demande avant l'échec : le fil est relu pour l'afficher tel qu'il est.
+  if (echec) charger(c, true, true);
+}
+
+/** Une étape reçue du serveur : seule la bulle en direct est redessinée, la saisie n'est pas touchée. */
+function etapeRecue(c, s) {
+  return (e) => {
+    const k = s.etapes.findIndex((x) => x.n === e.n);
+    if (k >= 0) s.etapes[k] = { ...s.etapes[k], ...e, t: e.t || s.etapes[k].t };
+    else s.etapes.push(e);
+    if (cible().key !== c.key) return;
+    for (const el of document.querySelectorAll("[data-ag-live]")) {
+      const l = el.closest(".ag-list");
+      const enBas = !l || l.scrollTop + l.clientHeight >= l.scrollHeight - 60;
+      el.innerHTML = liveHTML(s);
+      if (l && enBas) l.scrollTop = l.scrollHeight;
+    }
+  };
 }
 
 /** Clore ou Agent neuf (fiche) : l'agent consolide la fiche, puis le fil dit que la fiche est à jour (ou repart vide). */
 async function cloreFil(neuf) {
   const c = cible(), s = st(c.key);
   if (s.busy || c.type === "ecran") return;
-  s.busy = true; s.arret = false; s.err = ""; s.attente = neuf ? "Consolidation de la fiche avant de passer le relais à un agent neuf…" : "Clôture de la session, l'agent met la fiche à jour…"; paint();
+  s.busy = true; s.arret = false; s.err = ""; s.attente = neuf ? "Consolidation de la fiche avant de passer le relais à un agent neuf…" : "Clôture de la session, l'agent met la fiche à jour…"; s.etapes = []; paint();
   try {
-    const r = await agentApi.clore(c.type, c.id, neuf);
+    const r = await agentApi.clore(c.type, c.id, neuf, etapeRecue(c, s));
     s.fil = r.fil; s.info = r;
+    if (r.reponse?.id && s.etapes.length) ETAPES.set(r.reponse.id, s.etapes.slice());
     if (r.ecrit) ficheModifiee();
   } catch (e) { s.err = e.message || "La clôture n'a pas abouti."; }
-  s.busy = false; s.arret = false; s.attente = "";
+  s.busy = false; s.arret = false; s.attente = ""; s.etapes = [];
   if (cible().key === c.key) paint();
 }
 
@@ -478,6 +549,13 @@ async function annulerGroupe(gid) {
 
 export function basculerAgent(force) {
   const c = cible();
+  // Ordinateur, fiche ouverte : afficher ou masquer l'agent de la fiche, choix gardé (27/11/2026).
+  if (ficheBureau()) {
+    const montrer = force ?? PREF.masque;
+    PREF.masque = !montrer; garder(); paint(montrer);
+    if (montrer) setTimeout(() => { const t = $(PREF.mode === "flottant" ? "#agp #ag-in" : "#dr-side #ag-in"); t?.focus({ preventScroll: true }); const l = t?.closest(".ag")?.querySelector(".ag-list"); if (l) l.scrollTop = l.scrollHeight; }, 30);
+    return;
+  }
   if (placement(c) === "side" && force === undefined && tel() && $("#drawer").classList.contains("side-on")) { vueAgent(false); return; }
   if (placement(c) === "side" && force === undefined) {
     // Fiche ouverte, fil ancré dans son panneau : on y mène (téléphone : sous la fiche).
@@ -492,6 +570,7 @@ export function basculerAgent(force) {
 
 /** Bouton « Agent » de l'en-tête d'une fiche sur téléphone : vers le fil, où qu'il soit. */
 export function allerAuFil() {
+  if (ficheBureau() && PREF.masque) { basculerAgent(true); return true; }
   if (PREF.mode === "flottant" || !sideHost()) { basculerAgent(true); return true; }
   // Téléphone (27/11/2026, artefact 8f56) : la fiche laisse toute la place au fil, Mes notes est masqué.
   if (etroite()) { vueAgent(true); return true; }
@@ -550,6 +629,7 @@ if (window.visualViewport) { visualViewport.addEventListener("resize", zoneVisib
 
 function changerMode(m) {
   PREF.mode = m; if (m === "flottant") { PREF.ouvert = true; if (tel()) ouvertTel = true; }
+  if (ficheBureau()) PREF.masque = false;
   garder(); geomFaite = false; paint();
 }
 
@@ -666,6 +746,12 @@ export function bindAgent(side) { bindFil(side); }
 
 bindFil($("#agp-b"));
 bindPanneau();
+// En-tête du panneau de la fiche (ordinateur) : Fenêtre ou Ancrer, Masquer ; bouton Agent de l'en-tête de la fiche.
+document.addEventListener("click", (e) => {
+  const w = e.target.closest?.("[data-ag-win]");
+  if (w) { if (w.dataset.agWin === "mode") changerMode(PREF.mode === "flottant" ? "ancre" : "flottant"); else basculerAgent(false); return; }
+  if (e.target.closest?.("#dr-ag")) basculerAgent();
+});
 setAgentHook(monter);
 // Changement d'écran ou de fiche : après la navigation de app.js (même événement, écouteur suivant).
 // Téléphone : une autre fiche (ou la fermeture) repart sur le contenu de la fiche, pas sur le fil.

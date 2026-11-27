@@ -77,8 +77,52 @@ export function ficheTop({ kind, url = null, side = true }) {
   a.hidden = !url;
   if (url) a.href = url;
   $("#drawer").classList.toggle("has-side", side);
-  if (!side) $("#dr-side").innerHTML = "";
+  if (!side) { $("#dr-side").innerHTML = ""; notesPane.innerHTML = ""; placerNotes(); }
 }
+
+// ---------------- Onglet Notes de la fiche (27/11/2026, artefact design) ----------------
+// Sur ordinateur, Mes notes quitte le haut du panneau de droite et devient un onglet « Notes » de la fiche, à côté
+// des autres (une section en bas de la fiche projet, qui n'a pas d'onglets). Même contenu, même écriture (bindNotes).
+// Sur téléphone, rien ne change : Mes notes reste dans le panneau, sous la fiche.
+const bureau = () => !window.matchMedia("(max-width: 900px)").matches;
+const notesPane = document.createElement("section");
+notesPane.className = "notes-pane";
+notesPane.setAttribute("aria-label", "Notes");
+let notesOn = false;
+function placerNotes() {
+  const body = $("#dr-body"), d = $("#drawer");
+  if (!body || !d) return;
+  const nav = body.querySelector(".cnav");
+  const vide = !notesPane.innerHTML || !d.classList.contains("has-side");
+  if (vide) {
+    notesPane.remove(); body.querySelector("[data-notes-tab]")?.remove(); d.classList.remove("notes-on"); return;
+  }
+  if (nav) {
+    let b = nav.querySelector("[data-notes-tab]");
+    if (!b) {
+      b = document.createElement("button"); b.type = "button"; b.dataset.notesTab = "1"; b.textContent = "Notes";
+      (nav.firstElementChild ? nav.firstElementChild.after(b) : nav.append(b));
+    }
+    b.classList.toggle("on", notesOn); b.setAttribute("aria-current", String(notesOn));
+    const apres = nav.nextElementSibling?.classList.contains("cbody") ? nav.nextElementSibling : nav;
+    if (apres.nextElementSibling !== notesPane) apres.after(notesPane);
+    notesPane.classList.remove("en-bas");
+  } else {
+    if (body.lastElementChild !== notesPane) body.append(notesPane);
+    notesPane.classList.add("en-bas");
+  }
+  d.classList.toggle("notes-on", !!nav && notesOn);
+}
+new MutationObserver(placerNotes).observe(document.querySelector("#dr-body") ?? document.body, { childList: true });
+document.addEventListener("click", (e) => {
+  const b = e.target.closest?.("#dr-body .cnav button");
+  if (!b) return;
+  const on = !!b.dataset.notesTab;
+  if (on === notesOn && !on) return;
+  notesOn = on; placerNotes();
+  if (on) { const t = notesPane.querySelector("textarea"); if (t) t.focus({ preventScroll: true }); }
+}, true);
+window.addEventListener("hashchange", () => { notesOn = false; placerNotes(); });
 
 /**
  * Écrit le panneau de droite (Mes notes au-dessus, agent en dessous), seulement pour la vue propriétaire.
@@ -91,11 +135,16 @@ export const setAgentHook = (fn) => { agentHook = fn; };
 export function renderSide(owner, html) {
   if (!ownsDrawer(owner)) return;
   const side = $("#dr-side");
-  const typing = [...side.querySelectorAll("textarea[data-note]")].filter((t) => t.value !== t.dataset.orig)
+  const typing = [...side.querySelectorAll("textarea[data-note]"), ...notesPane.querySelectorAll("textarea[data-note]")].filter((t) => t.value !== t.dataset.orig)
     .map((t) => ({ prop: t.dataset.note, orig: t.dataset.orig, value: t.value }));
   const act = document.activeElement?.dataset?.note ? { prop: document.activeElement.dataset.note, a: document.activeElement.selectionStart, b: document.activeElement.selectionEnd } : null;
   side.innerHTML = html;
-  for (const t of side.querySelectorAll("textarea[data-note]")) {
+  // Ordinateur : Mes notes passe dans l'onglet Notes de la fiche (même balisage, même enregistrement).
+  const sn = bureau() ? side.querySelector(".side-notes") : null;
+  notesPane.innerHTML = sn ? `<div class="side-notes np-in">${sn.innerHTML}</div>` : "";
+  sn?.remove();
+  placerNotes();
+  for (const t of [...side.querySelectorAll("textarea[data-note]"), ...notesPane.querySelectorAll("textarea[data-note]")]) {
     const d = typing.find((x) => x.prop === t.dataset.note && x.orig === t.dataset.orig);
     if (d) t.value = d.value;
     if (act && act.prop === t.dataset.note) { t.focus({ preventScroll: true }); try { t.setSelectionRange(act.a, act.b); } catch { /* */ } }
@@ -137,6 +186,8 @@ export function bindNotes(side) {
   });
 }
 
+bindNotes(notesPane);
+
 const OA = {
   "En attente": ["st-attente", "Ordre en attente", "L'agent de production le prendra à son prochain passage."],
   "En cours": ["st-encours", "En cours", "L'agent de production y travaille."],
@@ -174,7 +225,7 @@ export function sideHTML({ notes = [], notesHint = "", notesMissing = "", ordre 
     : ordre?.etat ? `<div class="ag-prod"><div class="ag-prod-h">${ic("book", "ic-sm")}<b>Agent de production</b><span class="chip">${esc(ordre.etat)}</span></div></div>` : "";
   return `<div class="side-in">
     <section class="side-notes" aria-labelledby="sn-h"><div class="sn-h"><b id="sn-h">Mes notes</b><span class="small muted">${esc(notesHint || "Lues dans Notion, modifiables dans Notion")}</span></div>${notesBody}</section>
-    <section class="side-agent" aria-labelledby="ag-h"><div class="ag-head"><b id="ag-h">Agent de la fiche</b></div>
+    <section class="side-agent" aria-labelledby="ag-h"><div class="ag-head"><b id="ag-h">Agent de la fiche</b><span class="ag-win"><button class="iconbtn sm" type="button" data-ag-win="mode" title="Détacher l'agent en fenêtre flottante" aria-label="Détacher l'agent en fenêtre flottante">${ic("float", "ic-sm")}</button><button class="iconbtn sm" type="button" data-ag-win="masquer" title="Masquer l'agent" aria-label="Masquer l'agent">${ic("close", "ic-sm")}</button></span></div>
       ${prod}
       <div class="ag-host" data-agent-host></div></section>
   </div>`;
