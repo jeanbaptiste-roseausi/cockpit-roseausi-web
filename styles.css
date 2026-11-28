@@ -1127,3 +1127,15 @@ a.chip.pp:hover, button.chip.pp:hover { border-color: var(--teal); }
 .bl-form > p, .bl-form .mfoot { grid-column: 1 / -1; margin: 0; }
 .banner.nobrief { margin-bottom: 12px; }
 @media (max-width: 600px) { .bl-form { grid-template-columns: minmax(0, 1fr); } }
+
+/* Appli installable (28/11/2026) : bandeau « Nouvelle version », bandeau hors connexion, encart iPhone. */
+.maj, .horsligne { position: fixed; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top) + 10px); z-index: 95;
+  display: flex; align-items: center; gap: 8px; max-width: calc(100vw - 32px); padding: 8px 16px; border-radius: var(--r-chip);
+  font-size: 14px; font-weight: 700; box-shadow: var(--shadow); white-space: nowrap; }
+.horsligne { white-space: normal; width: max-content; }
+.maj { appearance: none; border: 0; cursor: pointer; background: var(--teal-strong); color: var(--on-teal); font-family: inherit; }
+.maj:hover { background: var(--teal); }
+.horsligne { background: var(--alert-50); color: var(--alert-strong); font-weight: 600; pointer-events: none; }
+.horsligne .ic { color: var(--alert); }
+.maj ~ .horsligne { top: calc(env(safe-area-inset-top) + 56px); }
+.appli-ios > div { display: flex; flex-direction: column; gap: 6px; }

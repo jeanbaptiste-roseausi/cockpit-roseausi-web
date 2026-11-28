@@ -44,6 +44,24 @@ export async function sendMagicLink(email) {
   if (error) throw new Error(otpMessage(error));
 }
 
+/**
+ * Appli installée (28/11/2026) : sur iPhone, le lien du mail s'ouvre dans Safari, qui n'a pas le stockage de
+ * l'appli. Jean-Baptiste copie le lien et le colle dans l'appli : on en lit le jeton à usage unique et on le
+ * vérifie auprès de Supabase Auth (verifyOtp), sans quitter l'appli. Seul un lien de vérification de ce projet
+ * Supabase est accepté.
+ */
+export async function connexionParLien(lien) {
+  let u;
+  try { u = new URL(String(lien || "").trim()); } catch { throw new Error("Ce n'est pas un lien : copie le lien du mail en entier."); }
+  if (u.origin !== new URL(SUPABASE_URL).origin || u.pathname !== "/auth/v1/verify" || !u.searchParams.get("token")) {
+    throw new Error("Ce lien n'est pas un lien de connexion du cockpit.");
+  }
+  const type = u.searchParams.get("type") === "invite" ? "invite" : "magiclink";
+  const { data, error } = await supabase.auth.verifyOtp({ token_hash: u.searchParams.get("token"), type });
+  if (error) throw new Error(/expired|invalid/i.test(error.message || "") ? "Ce lien a expiré ou a déjà servi : demande un nouveau lien." : "Connexion impossible : " + error.message);
+  return data.session;
+}
+
 // Traduction des erreurs d'envoi de lien, d'après le code renvoyé par Supabase Auth.
 function otpMessage(error) {
   const code = error.code || "";

@@ -10,6 +10,13 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="description" content="Cockpit de pilotage RoseauSI, contacts, tâches, projets, pistes et réseau lus et modifiés dans Notion.">
 <meta name="theme-color" content="#008078">
+<!-- Appli installable (28/11/2026) : manifeste, réglages iPhone, invitation à installer gardée pour Réglages. -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Cockpit">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<script>addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); window.__installation = e; });</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600&display=swap">

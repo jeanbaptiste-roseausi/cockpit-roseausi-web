@@ -3,6 +3,7 @@
 // Google n'empêche pas le reste de la page de s'afficher. Rien ne s'envoie depuis le cockpit.
 import { googleApi, googleAuthApi, journeeApi, journalApi } from "./api.js";
 import { esc, ic, fd, toast } from "./ui.js";
+import { monterCarteAppli } from "./appli.js";
 
 // ---------------- Petit magasin des lectures Google (une entrée par bloc) ----------------
 
@@ -108,7 +109,8 @@ export function lireIssueGoogle() {
 
 export const reglagesView = {
   id: "reglages", label: "Réglages", short: "Réglages", icon: "gear",
-  async mount(c) { rHost = c; renderR(); await loadR(); },
+  // Appli installable (28/11/2026) : carte « Appli » (Installer, encart iPhone) sous la liaison Google.
+  async mount(c) { c.innerHTML = `<div></div><div></div>`; rHost = c.firstElementChild; monterCarteAppli(c.lastElementChild); renderR(); await loadR(); },
   open() {}, close() {},
   reload: () => loadR(),
 };

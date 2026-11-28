@@ -4,7 +4,8 @@
 // #/todo/new/projet/<id du projet>, #/todo/new/piste/<id de la piste> (lot 2, suite), #/projets, #/projets/<id>, #/pistes, #/pistes/<id> (lot 2), #/reseau (lot 2),
 // #/journee (accueil), #/ensemble, #/journal, #/journal/<id> (lot 5a), #/a-traiter, #/reglages (lot 5b ; retour de Google
 // en ?google=<issue>#/reglages).
-import { onAuth, sendMagicLink, signOut, isAllowed, currentSession, consumeUrlTokens } from "./session.js";
+import { onAuth, sendMagicLink, signOut, isAllowed, currentSession, consumeUrlTokens, connexionParLien } from "./session.js";
+import { enAppli, formulaireLien } from "./appli.js";
 import { contactsView, bindContactEvents, bindDrawerEvents, bindNewContactEvents } from "./contacts.js";
 import { todoView, bindTodoEvents, bindTodoDrawerEvents } from "./todo.js";
 import { projetsView, bindProjetsEvents, bindProjetsDrawerEvents } from "./projets.js";
@@ -91,11 +92,14 @@ function loginScreen(msg = "", sent = false) {
   $("#app").innerHTML = `
     <div class="login"><div class="login-card">
       <div class="wm">RoseauSI</div><p class="muted" style="margin:6px 0 18px">Cockpit de pilotage</p>
-      ${sent ? `<div class="banner info">${ic("mail", "ic-sm")}<span>Lien envoyé. Ouvre le mail <b>dans ce navigateur</b> et clique sur le lien pour te connecter.</span></div>` : `
+      ${sent ? `<div class="banner info">${ic("mail", "ic-sm")}<span>${enAppli()
+        ? "Lien envoyé. Dans le mail, <b>appui long</b> sur le lien, <b>Copier le lien</b> (sans l'ouvrir), puis colle-le ci-dessous."
+        : "Lien envoyé. Ouvre le mail <b>dans ce navigateur</b> et clique sur le lien pour te connecter."}</span></div>` : `
       <form class="form" id="login">
         <div class="fld"><label for="em">Adresse mail</label><input id="em" type="email" required autocomplete="email" placeholder="prenom@roseausi.fr"></div>
         <button class="btn pri" type="submit">${ic("mail", "ic-sm")}Recevoir un lien de connexion</button>
       </form>`}
+      ${formulaireLien()}
       ${msg ? `<div class="banner" style="margin-top:12px">${ic("alert", "ic-sm")}<span>${esc(msg)}</span></div>` : ""}
     </div></div>`;
   $("#login")?.addEventListener("submit", async (e) => {
@@ -104,6 +108,13 @@ function loginScreen(msg = "", sent = false) {
     pendingMsg = "";
     try { await sendMagicLink($("#em").value); loginScreen("", true); }
     catch (err) { loginScreen(err.message); }
+  });
+  // Appli installée : lien du mail collé (voir connexionParLien).
+  $("#login-lien")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector("button"); btn.disabled = true;
+    try { const s = await connexionParLien($("#lien").value); if (s) applySession(s); }
+    catch (err) { loginScreen(err.message, sent); }
   });
 }
 
