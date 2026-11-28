@@ -258,6 +258,9 @@ const restant = (a) => Math.max(0, Math.ceil((Date.parse(a.envoi_le || 0) - Date
 function mailHTML(a) {
   const n = a.nouvelle || {};
   const pc = n.mode === "copier";
+  // Boîte P&C (28/11/2026) : la carte dit d'où part le mail quand c'est l'alias P&C, ou quand le mail est mixte.
+  const estPC = (x) => /[@.]passerellesetcompetences\.org$/i.test(String(x || "").trim());
+  const depuis = !pc && n.de && (n.boite === "pc" || estPC(n.de) || n.mixte || [...(n.to || []), ...(n.cc || [])].some(estPC)) ? n.de : null;
   if (a.statut === "remplace") return `<p class="ag-mail-old small muted">${ic("mail", "ic-sm")}Version ${esc(n.version || 1)} de « ${esc(n.objet || "")} », remplacée par la suivante (même brouillon).</p>`;
   const tete = a.statut === "envoye" ? `Envoyé à ${esc(hm(n.envoi?.le || a.appliquee_le || a.cree_le))}`
     : pc ? "Texte à copier, boîte Passerelles et Compétences" : a.statut === "envoi_programme" ? "Envoi programmé" : a.statut === "envoi_en_cours" ? "Envoi en cours" : "Brouillon Gmail";
@@ -272,10 +275,11 @@ function mailHTML(a) {
   const dest = (l) => (l || []).map(esc).join(", ");
   return `<div class="ag-mail s-${esc(a.statut)}" data-mail="${a.id}">
     <div class="ag-mail-h">${ic("mail", "ic-sm")}<b>${tete}</b>${n.version > 1 ? `<span class="chip">version ${esc(n.version)}</span>` : ""}${a.cible_id && !memeFiche(a.cible_id) ? `<span class="small muted">· ${lien(a)}</span>` : ""}</div>
+    ${depuis ? `<p class="small ag-mail-de" data-mail-de="${esc(depuis)}">Depuis <b>${esc(depuis)}</b></p>` : ""}
     <dl class="ag-mail-m"><dt>À</dt><dd>${dest(n.to)}</dd>${(n.cc || []).length ? `<dt>Cc</dt><dd>${dest(n.cc)}</dd>` : ""}<dt>Objet</dt><dd>${esc(n.objet || "")}</dd></dl>
     <div class="ag-mail-t" tabindex="0">${esc(n.corps || "")}</div>
     ${a.statut === "brouillon" && n.brouillon?.signature ? `<p class="small muted">La signature est ajoutée dans Gmail. Si tu corriges le brouillon dans Gmail, Envoyer part de ta version.</p>` : ""}
-    ${pc ? `<p class="small muted">Pas de brouillon Gmail pour ce domaine. Copie le texte dans ta boîte passerellesetcompetences.org.</p>` : ""}
+    ${pc ? `<p class="small muted">Pas de brouillon Gmail : l'alias jbaubourg@passerellesetcompetences.org n'est pas vérifié dans Gmail (Envoyer en tant que). Copie le texte dans ta boîte passerellesetcompetences.org.</p>` : ""}
     ${n.motif && a.statut !== "envoye" ? `<p class="small ag-mail-motif">${ic("info", "ic-sm")}Pas d'envoi direct : ${esc(n.motif)}.</p>` : ""}
     ${a.erreur ? `<p class="small ag-mail-err">${ic("alert", "ic-sm")}${esc(a.erreur)}</p>` : ""}
     <div class="ag-mail-f">${boutons}</div></div>`;

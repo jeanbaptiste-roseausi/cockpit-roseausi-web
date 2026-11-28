@@ -1088,6 +1088,8 @@ a.chip.pp:hover, button.chip.pp:hover { border-color: var(--teal); }
 .ag-mail-m { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; font-size: 13.5px; }
 .ag-mail-m dt { color: var(--ink-muted); }
 .ag-mail-m dd { margin: 0; overflow-wrap: anywhere; min-width: 0; }
+.ag-mail-de { margin: 0; overflow-wrap: anywhere; color: var(--ink-muted); }
+.ag-mail-de b { color: var(--ink); font-weight: 600; }
 .ag-mail-t { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14.5px; line-height: 1.55; max-height: 320px; overflow: auto; padding: 10px 12px; border-radius: 10px; background: var(--teal-25); }
 .ag-mail-f { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .ag-mail-cd { font-weight: 700; color: var(--teal-strong); font-variant-numeric: tabular-nums; margin-right: 4px; }
