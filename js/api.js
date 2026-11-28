@@ -177,6 +177,11 @@ export function projetsIndex() {
 export const journeeApi = {
   get: () => call("journee"),
   ensemble: () => call("journee", "/ensemble"),
+  // Ma journée bâtie sur le brief du matin (28/11/2026) : brief du jour (ou ?id=), gestes des lignes sans tâche.
+  brief: (id, frais = false) => call("journee", `/brief${id || frais ? "?" + [id ? `id=${encodeURIComponent(id)}` : "", frais ? "frais=1" : ""].filter(Boolean).join("&") : ""}`),
+  cocher: (brief, ligne, coche) => call("journee", `/brief/${brief}/lignes/${ligne}`, { method: "POST", body: { coche } }),
+  tacheLigne: (brief, ligne, values) => call("journee", `/brief/${brief}/lignes/${ligne}/tache`, { method: "POST", body: { values } }),
+  commenterLigne: (brief, ligne, texte) => call("journee", `/brief/${brief}/lignes/${ligne}/commentaire`, { method: "POST", body: { texte } }),
 };
 
 export const journalApi = {

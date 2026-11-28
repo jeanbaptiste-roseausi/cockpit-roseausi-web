@@ -34,6 +34,8 @@ function seg(s, fiches) {
   return t;
 }
 const rt = (r, fiches) => (r || []).map((s) => seg(s, fiches)).join("");
+/** Texte enrichi d'une ligne (segments simplifiés), pour Ma journée bâtie sur le brief (28/11/2026). */
+export const segsHTML = rt;
 const plain = (r) => (r || []).map((s) => s.x).join("").trim();
 
 const LISTES = { bulleted_list_item: "ul", numbered_list_item: "ol", to_do: "todo" };

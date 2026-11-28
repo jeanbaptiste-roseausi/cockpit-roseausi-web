@@ -1103,3 +1103,27 @@ a.chip.pp:hover, button.chip.pp:hover { border-color: var(--teal); }
 .ag-acts-fold summary::-webkit-details-marker { display: none; }
 .ag-acts-fold summary::before { content: ""; border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform .15s; }
 .ag-acts-fold[open] summary::before { transform: rotate(90deg); }
+
+/* Ma journée bâtie sur le brief du matin (28/11/2026, artefact 8f56 : sideList, dayRow, dBline). */
+.daylist { display: flex; flex-direction: column; }
+.dli { font-size: 13.5px; line-height: 1.45; padding: 8px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.dli:last-child { border-bottom: 0; }
+.dli.ckable { display: flex; gap: 10px; align-items: flex-start; }
+.dlb-w { flex: 1; min-width: 0; }
+.dlb { display: block; cursor: pointer; border-radius: 8px; color: inherit; text-decoration: none; overflow-wrap: anywhere; }
+.dlb:hover { background: color-mix(in srgb, var(--teal) 6%, transparent); }
+.dlt a { overflow-wrap: anywhere; }
+.dli.done .dlt { color: var(--ink-muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--ink-muted) 60%, transparent); }
+.dbadge.annule { color: var(--ink-muted); background: color-mix(in srgb, var(--ink-muted) 12%, transparent); }
+.dbadge.replan { color: var(--st-blue); background: var(--st-blue-bg); }
+.dbadge.hors { color: var(--st-violet); background: var(--st-violet-bg); }
+.dayrow.replan { opacity: .78; }
+.dayrow.replan .ttl { color: var(--ink-muted); }
+.dayrow .rs, .dayrow .rt { overflow-wrap: anywhere; }
+.blpanel { margin-top: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--surface-alt); display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.blpanel .bltext { font-size: 14px; overflow-wrap: anywhere; }
+.blpanel .dact { display: flex; gap: 8px; flex-wrap: wrap; }
+.bl-form .frow { display: contents; }
+.bl-form > p, .bl-form .mfoot { grid-column: 1 / -1; margin: 0; }
+.banner.nobrief { margin-bottom: 12px; }
+@media (max-width: 600px) { .bl-form { grid-template-columns: minmax(0, 1fr); } }
