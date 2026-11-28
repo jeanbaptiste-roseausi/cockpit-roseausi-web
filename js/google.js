@@ -4,6 +4,7 @@
 import { googleApi, googleAuthApi, journeeApi, journalApi } from "./api.js";
 import { esc, ic, fd, toast } from "./ui.js";
 import { monterCarteAppli } from "./appli.js";
+import { monterCarteMenu } from "./menu.js";
 
 // ---------------- Petit magasin des lectures Google (une entrée par bloc) ----------------
 
@@ -109,8 +110,8 @@ export function lireIssueGoogle() {
 
 export const reglagesView = {
   id: "reglages", label: "Réglages", short: "Réglages", icon: "gear",
-  // Appli installable (28/11/2026) : carte « Appli » (Installer, encart iPhone) sous la liaison Google.
-  async mount(c) { c.innerHTML = `<div></div><div></div>`; rHost = c.firstElementChild; monterCarteAppli(c.lastElementChild); renderR(); await loadR(); },
+  // Cartes sous la liaison Google : « Menu du téléphone » (28/11/2026), puis « Appli » (Installer, encart iPhone).
+  async mount(c) { c.innerHTML = `<div></div><div></div><div></div>`; rHost = c.children[0]; monterCarteMenu(c.children[1]); monterCarteAppli(c.children[2]); renderR(); await loadR(); },
   open() {}, close() {},
   reload: () => loadR(),
 };

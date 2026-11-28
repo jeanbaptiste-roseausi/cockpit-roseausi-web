@@ -18,6 +18,7 @@ import { mountSearch } from "./search.js";
 import { $, esc, ic, tickSync, toast, bindNotes } from "./ui.js";
 import { miroirApi, todoApi, pistesApi } from "./api.js";
 import { bindAgent, basculerAgent, allerAuFil, vueAgent } from "./agent.js";
+import { configurerMenu, menuMobile, chargerMenu } from "./menu.js";
 
 // Vues disponibles. Menu aligné sur l'artefact « Pilotage RoseauSI », version 1795691780-62c5
 // (poc/pilotage-2026-11-26.html) : Ma journée, Vue d'ensemble, Pistes, Contacts, Journal, Projets, Actions.
@@ -27,9 +28,23 @@ import { bindAgent, basculerAgent, allerAuFil, vueAgent } from "./agent.js";
 // journée, et Réglages (liaison Google) en dernier. L'entrée grisée « Mails » est retirée : les mails sont dans
 // À traiter, Ma journée, le Journal et la fiche Contact.
 const VIEWS = [journeeView, aTraiterView, ensembleView, pistesView, contactsView, reseauView, journalView, projetsView, todoView, reglagesView];
-// Téléphone : quatre onglets en bas (maquette, MOB_TABS) et « Plus » pour les autres vues.
+// Téléphone : quatre onglets en bas (maquette, MOB_TABS) et « Plus » pour les autres vues. Depuis le 28/11/2026,
+// ordre et onglets réglables dans Réglages (menu.js) ; MOB_TABS et l'ordre de VIEWS restent le choix par défaut.
 const MOB_TABS = ["journee", "todo", "pistes", "contacts"];
 const SOON = [];
+configurerMenu({ vues: VIEWS, defautBarre: MOB_TABS, onChange: () => { if (current && $("#tabbar")) navMobile(); } });
+
+/** Barre du bas et liste « Plus » du téléphone, dans l'ordre choisi (menu.js). */
+function navMobileHTML() {
+  const { barre, plus } = menuMobile();
+  return `<nav id="tabbar" aria-label="Navigation">${barre.map((v) => `<button class="${v === current ? "on" : ""}" data-nav="${v.id}">${ic(v.icon)}${esc(v.short || v.label)}${badge(v)}</button>`).join("")}<button class="${barre.includes(current) ? "" : "on"}" data-act="more" aria-expanded="false" aria-controls="morelist">${ic("list")}Plus</button></nav>
+    <div id="morelist" class="morelist" hidden>${plus.map((v) => `<button class="${v === current ? "on" : ""}" data-nav="${v.id}">${ic(v.icon)}<span class="nl">${esc(v.label)}</span>${badge(v)}</button>`).join("")}${SOON.map((v) => `<button disabled>${ic(v.icon)}<span class="nl">${esc(v.label)}</span><span class="soon">bientôt</span></button>`).join("")}</div>`;
+}
+function navMobile() {
+  $("#morelist")?.remove();
+  $("#tabbar").outerHTML = navMobileHTML();
+  window.dispatchEvent(new Event("resize")); // hauteur de la barre (fiche ouverte)
+}
 
 // Pastilles du menu, mêmes règles que l'artefact (fonction badges) :
 //   Actions, rouge : tâches ouvertes dont l'échéance est passée (avant aujourd'hui, Paris) ;
@@ -57,7 +72,7 @@ async function refreshBadges(force = false) {
 const seenAt = {};
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible" || !current || !session) return;
-  if (Date.now() - (seenAt[current.id] ?? 0) > 2 * 60_000) { seenAt[current.id] = Date.now(); current.reload?.(); refreshBadges(true); }
+  if (Date.now() - (seenAt[current.id] ?? 0) > 2 * 60_000) { seenAt[current.id] = Date.now(); current.reload?.(); refreshBadges(true); chargerMenu(); }
 });
 
 let session = null;
@@ -83,8 +98,7 @@ function shell() {
         <button class="iconbtn mob-only" data-act="logout" aria-label="Déconnexion">${ic("logout")}</button></div>
       <main id="view"></main>
     </div>
-    <nav id="tabbar" aria-label="Navigation">${MOB_TABS.map((id) => VIEWS.find((v) => v.id === id)).map((v) => `<button class="${v === current ? "on" : ""}" data-nav="${v.id}">${ic(v.icon)}${esc(v.short || v.label)}${badge(v)}</button>`).join("")}<button class="${MOB_TABS.includes(current.id) ? "" : "on"}" data-act="more" aria-expanded="false" aria-controls="morelist">${ic("list")}Plus</button></nav>
-    <div id="morelist" class="morelist" hidden>${VIEWS.filter((v) => !MOB_TABS.includes(v.id)).map((v) => `<button class="${v === current ? "on" : ""}" data-nav="${v.id}">${ic(v.icon)}<span class="nl">${esc(v.label)}</span>${badge(v)}</button>`).join("")}${SOON.map((v) => `<button disabled>${ic(v.icon)}<span class="nl">${esc(v.label)}</span><span class="soon">bientôt</span></button>`).join("")}</div>`;
+    ${navMobileHTML()}`;
 }
 
 function loginScreen(msg = "", sent = false) {
@@ -183,6 +197,7 @@ async function applySession(s) {
   session = s;
   if (!s) { current = null; loginScreen(pendingMsg); return; }
   if (changed || !current) { current = null; route(); }
+  if (changed) chargerMenu(); // menu du téléphone gardé dans le cockpit (la copie locale est déjà affichée)
 }
 
 // Actualiser : relecture incrémentale du miroir (pages modifiées dans Notion), puis la vue est relue.
@@ -203,6 +218,7 @@ async function actualiser() {
   if (current) seenAt[current.id] = Date.now();
   current?.reload?.();
   refreshBadges(true);
+  chargerMenu();
 }
 setInterval(() => tickSync(), 30_000);
 

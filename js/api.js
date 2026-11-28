@@ -211,3 +211,9 @@ export const googleApi = {
   creerBrouillon: (b) => call("google", "/brouillons", { method: "POST", body: b }),
   envoyerBrouillon: (id) => call("google", `/brouillons/${encodeURIComponent(id)}/envoyer`, { method: "POST", body: {} }),
 };
+
+// Préférences de l'utilisateur gardées dans le cockpit (28/11/2026) : menu du téléphone.
+export const reglagesApi = {
+  preferences: () => call("reglages", "/preferences"),
+  enregistrer: (cle, valeur) => call("reglages", `/preferences/${encodeURIComponent(cle)}`, { method: "POST", body: { valeur } }),
+};
