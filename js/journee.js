@@ -333,7 +333,7 @@ export function interRow(e, d) {
   const when = dt ? `${fd(e.date)}${/T/.test(e.date) ? " à " + dt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }).replace(":", " h ") : ""}` : "";
   return `<a class="row" href="#/journal/${e.id}"><span class="ifmt sm ${k ? "" : "none"}">${ic(k || "note", "ic-sm")}</span>
     <div class="rm"><div class="rt">${esc(e.titre)}</div><div class="rs">${esc(when)}${e.format ? " · " + esc(lab(e.format)) : ""}${e.duree ? ` · ${e.duree} min` : ""}</div>
-    <div class="chips" style="margin-top:6px">${pi ? `<span class="chip pi">${ic("target", "ic-sm")}${esc(pi.trim())}</span>` : ""}${pj ? `<span class="chip pj">${ic("folder", "ic-sm")}${esc(pj)}</span>` : ""}${!e.projets.length && !e.pistes.length ? `<span class="chip dash">Non rattachée</span>` : ""}${e.contacts.length ? `<span class="chip">${e.contacts.length} contact${e.contacts.length > 1 ? "s" : ""}</span>` : ""}${e.actions ? `<span class="chip">${e.actions} action${e.actions > 1 ? "s" : ""}</span>` : ""}</div></div></a>`;
+    <div class="chips" style="margin-top:6px">${pi ? `<span class="chip pi">${ic("target", "ic-sm")}${esc(pi.trim())}</span>` : ""}${pj ? `<span class="chip pj"${e.projetParTag ? ` title="Rattaché par son Tag (relation Projets vide dans Notion)"` : ""}>${ic("folder", "ic-sm")}${esc(pj)}</span>` : ""}${!e.projets.length && !e.pistes.length ? `<span class="chip dash">Non rattachée</span>` : ""}${e.contacts.length ? `<span class="chip">${e.contacts.length} contact${e.contacts.length > 1 ? "s" : ""}</span>` : ""}${e.actions ? `<span class="chip">${e.actions} action${e.actions > 1 ? "s" : ""}</span>` : ""}</div></div></a>`;
 }
 
 function renderE() {
@@ -366,9 +366,9 @@ function renderE() {
       <div class="list">${d.meteo.map((m) => `<a class="row" href="#/projets/${m.id}"><div class="rm"><div class="rt">${esc(m.nom)}</div><div class="rs clamp2">${esc(m.motif || "")}</div></div><div class="rr">${meteoChip(m.meteo)}${m.dateJalon ? `<span class="due">Jalon ${esc(fd(m.dateJalon))}</span>` : ""}</div></a>`).join("") || `<p class="empty">Aucune mission en cours avec une météo.</p>`}</div></section>
     <section class="card"><div class="card-h"><h2>Dernières interactions</h2><a class="lnk" href="#/journal">Journal</a></div>
       <div class="list">${d.interactions.map((e) => interRow(e, d)).join("") || `<p class="empty">Aucune interaction.</p>`}</div></section>
-    <section class="card"><div class="card-h"><h2>Pistes prioritaires sans nouvelles</h2><span class="count">${d.sansNouvelles.length}</span></div>
+    <section class="card"><div class="card-h"><h2>Pistes prioritaires sans nouvelles</h2><span class="count">${d.sansNouvellesTotal ?? d.sansNouvelles.length}</span></div>
       <p class="small muted" style="margin-bottom:6px">${esc(d.regles.sansNouvelles)}</p>
-      <div class="list">${d.sansNouvelles.map((p) => `<a class="row" href="#/pistes/${p.id}"><div class="rm"><div class="rt">${esc(p.nom.trim())}</div><div class="chips" style="margin-top:6px">${p.etape ? `<span class="chip">${esc(lab(p.etape))}</span>` : ""}<span class="chip">${p.dernierEchange ? "Dernier échange " + esc(fd(p.dernierEchange)) : "Aucun échange au journal"}</span></div></div><div class="rr">${stars(p.prio)}</div></a>`).join("") || `<p class="empty">Toutes les pistes prioritaires ont eu un échange récent.</p>`}</div></section>
+      <div class="list">${d.sansNouvelles.map((p) => `<a class="row" href="#/pistes/${p.id}"><div class="rm"><div class="rt">${esc(p.nom.trim())}</div><div class="chips" style="margin-top:6px">${p.etape ? `<span class="chip">${esc(lab(p.etape))}</span>` : ""}<span class="chip">${p.dernierContact ? "Dernier contact " + esc(fd(p.dernierContact)) : p.dernierEchange ? "Dernier échange " + esc(fd(p.dernierEchange)) : "Aucun contact noté"}</span></div></div><div class="rr">${stars(p.prio)}</div></a>`).join("") || `<p class="empty">Toutes les pistes prioritaires ont eu un échange récent.</p>`}</div></section>
   </div>`;
 }
 

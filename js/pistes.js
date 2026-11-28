@@ -45,6 +45,12 @@ export const pisteSection = (id, sec) => { nextSec = { id, sec }; };
 // La prochaine action d'une piste est sa tâche ouverte liée à l'échéance la plus proche (fonction pistes).
 // Le texte libre de Notion vient en second, comme note qui peut être périmée.
 const nxDate = (p) => p.prochaine?.echeance || "";
+/** Dernier contact : Dernière interaction ou dernier échange au Journal, le plus récent (fonction pistes, 28/11/2026). */
+const contactDe = (p) => p.dernierContact || p.derniereInteraction || "";
+/** Tri des pistes (_shared/regles.ts) : prio décroissante, prochaine action croissante, dernier contact du plus récent au plus ancien. */
+export const ordrePistes = (a, b) => (starsN(b.prio) ?? -1) - (starsN(a.prio) ?? -1)
+  || String(nxDate(a) || "9").localeCompare(String(nxDate(b) || "9"))
+  || String(contactDe(b)).localeCompare(String(contactDe(a)));
 const autres = (p) => p.autresTaches ? ` <span class="small muted">+ ${p.autresTaches} autre${p.autresTaches > 1 ? "s" : ""} tâche${p.autresTaches > 1 ? "s" : ""} ouverte${p.autresTaches > 1 ? "s" : ""}</span>` : "";
 /** Ligne courte (listes, cartes) : intitulé de la prochaine tâche, ou l'alerte. */
 function nxLine(p) {
@@ -122,7 +128,7 @@ function filtered(ignoreSt) {
     if (!ignoreSt && f.st && p.etape !== f.st) return false;
     if (q && !nrm([p.nom, p.prochaine?.nom, p.noteLibre, ...p.contacts.map((id) => S.cn[id] || "")].join(" ")).includes(q)) return false;
     return true;
-  }).sort((a, b) => (starsN(b.prio) ?? -1) - (starsN(a.prio) ?? -1) || String(nxDate(a) || "9").localeCompare(String(nxDate(b) || "9")));
+  }).sort(ordrePistes);
 }
 
 function render() {
@@ -212,7 +218,7 @@ function pisteCard(p, drag) {
     <div class="pc-top">${stars(p.prio)}${p.tags.slice(0, 1).map((t) => `<span class="chip">${esc(lab(t))}</span>`).join("")}${issChip(p.issue)}${/Opportunit/.test(p.leadOpportunite || "") ? `<span class="chip st-relire" title="Qualifiée en opportunité">Opportunité</span>` : ""}</div>
     <h3>${esc(p.nom)}</h3>
     <div class="pc-pa">${nxLine(p)}</div>
-    <div class="pc-meta">${p.prochaine ? nxDue(p) : ""}${p.derniereInteraction ? `<span>Échange ${esc(ago(p.derniereInteraction))}</span>` : ""}${p.caEstime ? `<span class="num">${eur(p.caEstime)}</span>` : ""}${p.joursPonderes ? `<span class="num">${j1(p.joursPonderes)} pond.</span>` : ""}${avs(p.contacts)}</div>
+    <div class="pc-meta">${p.prochaine ? nxDue(p) : ""}${contactDe(p) ? `<span title="Dernier contact : Dernière interaction ou échange au Journal">Échange ${esc(ago(contactDe(p)))}</span>` : ""}${p.caEstime ? `<span class="num">${eur(p.caEstime)}</span>` : ""}${p.joursPonderes ? `<span class="num">${j1(p.joursPonderes)} pond.</span>` : ""}${avs(p.contacts)}</div>
   </a>`;
 }
 
@@ -452,7 +458,7 @@ function band(o, p) {
   const opts = (k, empty) => ppOpts([...(empty ? [["", empty]] : []), ...(ed[k]?.options || []).map((x) => [x, lab(x) || x])], o.values?.[k] ?? "");
   const n = starsN(p.prio);
   const prioShown = n == null ? "+ Priorité" : n === 0 ? "Froide" : "★".repeat(n) + "☆".repeat(3 - n);
-  const last = p.echanges?.[0]?.date || p.derniereInteraction;
+  const last = p.dernierContact || p.echanges?.[0]?.date || p.derniereInteraction;
   const nx = p.prochaine;
   const nxLate = nx?.echeance && nx.echeance.slice(0, 10) < today();
   const opp = /Opportunit/.test(p.leadOpportunite || "");

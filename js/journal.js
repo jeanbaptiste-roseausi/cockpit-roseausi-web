@@ -330,7 +330,12 @@ async function ecrire(changes, msg) {
   S.busy = true; renderDrawer();
   try {
     const r = await journalApi.rattacher(o.id, changes);
-    if (msg) toast(msg);
+    // Suites de l'échange (28/11/2026) : Dernière interaction des pistes, Dernier échange et Parcours réseau des personnes.
+    const faites = (r.suites || []).filter((x) => !x.erreur && Object.keys(x.changes || {}).length);
+    const echecs = (r.suites || []).filter((x) => x.erreur);
+    const suite = faites.length ? ` ${faites.map((x) => `${x.nom || (x.base === "pistes" ? "Piste" : "Contact")} : ${Object.keys(x.changes).map((k) => k.replace(/^[^\p{L}\p{N}]+/u, "")).join(", ")}`).join(" ; ")} mis à jour.` : "";
+    if (msg || suite) toast(`${msg || "Échange mis à jour dans Notion."}${suite}`);
+    if (echecs.length) toast(`Mise à jour non faite pour ${echecs.length} fiche${echecs.length > 1 ? "s" : ""} liée${echecs.length > 1 ? "s" : ""} : ${echecs[0].erreur}`, "err");
     const nm = (list, id) => (list || []).find((x) => x.id === id)?.nom;
     const names = (ids, old, list, def) => Object.fromEntries(ids.map((id) => [id, old[id] ?? nm(list, id) ?? def]));
     Object.assign(o.e, {
